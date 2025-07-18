@@ -12,7 +12,7 @@ $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 $tenantId = $tenantId ?? $null
 $clientId = $clientId ?? $null
 
-$scopes = "Sites.Read.All"
+$scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 
 # 1.3 Init and vars
 $userSelectedSites = [System.Collections.ArrayList]@()

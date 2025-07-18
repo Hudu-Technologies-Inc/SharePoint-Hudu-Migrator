@@ -198,6 +198,15 @@ function EnsureRegistration {
                 Write-Warning "App registration failed. Try again."
                 continue
             }
+
+            Write-Host "Now, make sure Device Code Flow is enabled in your app registration." -ForegroundColor Cyan
+            Write-Host "`nTo do this:" -ForegroundColor Cyan
+            Write-Host "1. Open your app registration in Azure Portal $($newAppRegResult.RegistrationUrl)" -ForegroundColor Cyan
+            Write-Host "2. Go to Authentication > Advanced Settings" -ForegroundColor Cyan
+            Write-Host "3. Under 'Allow public client flows', enable 'Allow device code flow'" -ForegroundColor Cyan
+            Write-Host "`nOpening the Device Code Login URL to test your registration..."  -ForegroundColor Cyan
+            Start-Process $($newAppRegResult.RegistrationUrl)
+            Read-Host "Press Enter when Finished"
         } else {
             $tenantId = $tenantId ?? $(Read-Host "Enter your Microsoft Tenant ID")
             $clientId = $clientId ?? $(Read-Host "Enter your App Registration Client ID")

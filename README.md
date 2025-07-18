@@ -42,7 +42,9 @@ It's reccomended to instantiate via dot-sourcing, ie
 
 it will check powershell version, get modules loaded, get you signed into hudu, check hudu version, and begin downloading all sites/files.
 
-you'll be asked to copy a code for authenticating via Microsoft Device Login. Simply copy the generated code and paste in after navigating [here](https://login.microsoftonline.com/common/oauth2/deviceauth) in a web browser. You'll then sign into Office/Azure/Entra as usual.
+You'll be asked to copy a code for authenticating via Microsoft Device Login. Simply copy the generated code and paste it after navigating to Microsoft's device authentication page, [here](https://login.microsoftonline.com/common/oauth2/deviceauth) in a web browser. You'll then sign into Office/Azure/Entra as usual.
+
+[<img width="1972" height="1184" alt="image" src="https://github.com/user-attachments/assets/02041a8d-b7ce-48f7-aa90-248d16798e3f" />](https://login.microsoftonline.com/common/oauth2/deviceauth)
 
 Just before the file conversion process begins, this script will download a and being the graphical installer for Libreoffice if it doesn't seem like Libreoffice is installed. Simply go through all the questions with default values, as the desired install path has already been set for you. If you already have Libreoffice installed, it will pick up on that in use the version you already have.
 

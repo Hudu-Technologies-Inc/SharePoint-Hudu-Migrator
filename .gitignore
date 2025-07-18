@@ -1,0 +1,14 @@
+**/logs/
+**/downloads/
+**/sites/
+**/tmp/
+**/logs/*
+*environ*
+downloads
+sp-html-dumper\nvm\v18.20.3
+sp-html-dumper\nvm\v18.20.3\*
+environ*.ps1
+*environ*
+!environ.example
+*.reference
+filearray.reference

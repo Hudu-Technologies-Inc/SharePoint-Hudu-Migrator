@@ -11,6 +11,8 @@ function Set-AzureAppRegistration {
      # Alt URL for redirects
     $env:AZURE_CLI_ENCODING = "UTF-8"
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $TenantId = $null
+    $SubscriptionId = $null
 
     # install/import az module, set initial AZ context
     foreach ($module in @('Az')) {if (Get-Module -ListAvailable -Name $module) 
@@ -74,11 +76,12 @@ function Set-AzureAppRegistration {
     Set-PrintAndLog -message "Step 1: Select Tenants" -Color Green
     $Tenants = az account list --query "[].{Name:name, TenantId:tenantId, SubscriptionId:id}" --output json | ConvertFrom-Json
 
-    if ($Tenants.Count -eq 1) {
-        $TenantId = $Tenants[0].TenantId
-        Set-PrintAndLog -message "Only one tenant found. Using: $TenantId ($($Tenants[0].Name))" -Color Yellow
-        az account set --tenant $TenantId
-    } else {
+        if ($Tenants.Count -eq 1) {
+            $TenantId = $Tenants[0].TenantId
+            $SubscriptionId = $Tenants[0].SubscriptionId
+            Set-PrintAndLog -message "Only one tenant found. Using: $TenantId ($($Tenants[0].Name))" -Color Yellow
+            az account set --subscription $SubscriptionId
+        } else {
         Set-PrintAndLog -message "Available Tenants:" -Color Green
         $Tenants | ForEach-Object {
             Set-PrintAndLog -message "$($_.Name) - $($_.TenantId)" -Color Blue
@@ -150,19 +153,23 @@ function Set-AzureAppRegistration {
         Set-PrintAndLog -message "Applying Delegated permissions..." -Color DarkGreen
         foreach ($scope in $DelegatedScopes) {
             az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$scope"
+            Start-Sleep -Seconds 2
         }
     }
     if ($ApplicationRoles.Count -gt 0) {
         Set-PrintAndLog -message "Applying Application permissions..." -Color DarkGreen
         foreach ($role in $ApplicationRoles) {
             az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$role"
+            Start-Sleep -Seconds 2
         }
     }
     if ($DelegatedScopes.Count -gt 0) {
+        Start-Sleep -Seconds 2
         Set-PrintAndLog -message "Granting admin consent for Delegated permissions..." -Color DarkGreen
         az ad app permission grant --id $AppId --api $GraphAppId --scope ($DelegatedScopes -replace "=Scope", "" -join " ")
     }
     if ($ApplicationRoles.Count -gt 0) {
+        Start-Sleep -Seconds 2
         Set-PrintAndLog -message "Granting admin consent for Application permissions..." -Color DarkGreen
         az ad app permission admin-consent --id $AppId
     }
@@ -209,7 +216,7 @@ function EnsureRegistration {
                 continue
             }
 
-            Set-PrintAndLog -message "Now, make sure Device Code Flow is enabled in your app registration." -ForegroundColor Cyan
+            Set-PrintAndLog -message "Now, make sure Device Code Flow is enabled in your app registration." -Color Cyan
             Write-Host "`nTo do this:" -ForegroundColor Cyan
             Write-Host "1. Open your app registration in Azure Portal $($newAppRegResult.RegistrationUrl)" -ForegroundColor Cyan
             Write-Host "2. Go to Authentication > Advanced Settings" -ForegroundColor Cyan

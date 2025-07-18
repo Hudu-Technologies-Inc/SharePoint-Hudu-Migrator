@@ -129,6 +129,7 @@ function Set-PrintAndLog {
     param (
         [string]$message,
         [Parameter()]
+        [Alias("ForegroundColor")]
         [ValidateSet("Black","DarkBlue","DarkGreen","DarkCyan","DarkRed","DarkMagenta","DarkYellow","Gray","DarkGray","Blue","Green","Cyan","Red","Magenta","Yellow","White")]
         [string]$Color
     )

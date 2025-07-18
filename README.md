@@ -15,6 +15,24 @@ Easy Migration from Sharepoint to Hudu
 
 ### Starting
 
+#### Azure AppRegistration
+If you haven't already made an app registration, no worries, there is an inline app registration option. If you haven't added a ClientId and TenantId, it will prompt you to create one.
+It uses the AZ powershell module for this which takes a while, but it will assign all proper permissions. 
+
+<img width="1900" height="438" alt="image" src="https://github.com/user-attachments/assets/304e1541-dbac-4596-8117-b0b35716c4c2" />
+
+Then it will open the URL for the final step- which is enabling Public Auth Flows (which allows us to use Device Auth)
+
+<img width="864" height="231" alt="image" src="https://github.com/user-attachments/assets/01d6cafc-7f16-48fe-95a3-7e4c96dcc802" />
+If you already made an appregistration, you can enter the clientid (appid) and the tenantId in the top of the main migration script.
+Creating appregistration manually is fine, just a little more effort. To do so, you'll apply these application/delegated permissions
+
+```
+delegatedPermissions: "Sites.Read.All", "Files.Read.All", "User.Read", "offline_access"
+applicationPermissions: "Files.Read.All", "Sites.Read.All"
+```
+
+
 It's reccomended to instantiate via dot-sourcing, ie
 
 ```

@@ -165,7 +165,8 @@ function Set-AzureAppRegistration {
         DefaultAccount          = $($AzAccounts | Where-Object { $_.isDefault -eq $true })
         GraphAppId              = $GraphAppId
         Account                 = $account
-        RegistrationUrl         = "https://portal.azure.com/#blade/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/overview/appId/$AppId"
+        RegistrationUrl         = "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/$AppId/isMSAApp~/false?Microsoft_AAD_IAM_legacyAADRedirect=true"
+
     }
 
 

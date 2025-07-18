@@ -20,7 +20,7 @@ $RunSummary.JobInfo.MigrationDest=$(Select-ObjectFromList -Objects @(
 
 
 if ([int]$RunSummary.JobInfo.MigrationDest.Identifier -eq 0) {
-    $SingleCompanyChoice=$(Select-ObjectFromList -Objects $AllCompanies -message "Which company to $($SourcePages.OptionMessage) ($($SourcePages.count)) articles to?")
+    $SingleCompanyChoice=$(Select-ObjectFromList -Objects $AllCompanies -message "Which company to $($SourcePages.OptionMessage) articles to?")
     $Attribution_Options=[PSCustomObject]@{
         CompanyId            = $SingleCompanyChoice.Id
         CompanyName          = $SingleCompanyChoice.Name

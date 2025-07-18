@@ -81,13 +81,5 @@ foreach ($doc in $StubbedArticles) {
         })
         continue
     }
-
-    # Track relinking info. we'll want to relink articles/pages after all are created.
-    $Article_Relinking[$doc.Stub.id] = [PSCustomObject]@{
-        HuduArticle = $doc.Stub
-        doc         = $doc
-        content     = $doc.ReplacedContent
-        Links       = $doc.AllAttachments
-    }
     Write-Progress -Activity "Processing content for $($doc.title)" -Status "$completionPercentage%" -PercentComplete $completionPercentage
 }

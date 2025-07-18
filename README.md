@@ -8,17 +8,17 @@ Easy Migration from Sharepoint to Hudu
 - Hudu Instance of 2.37.1 or newer
 - Companies created in Hudu if you want to attribute sharepoint items to companies
 - Hudu API Key
-- Sharepoint / Sites
-- Read permissions for Sharepoint
+- Sharepoint / Sites with Files
 - Powershell 7.5.0 or later
-- Libreoffice Installed
+- Libreoffice **(script will start install if not present)**
+- Read permissions for Sharepoint **(script will register app in entra if not manually set)**
 
 ### Setup Azure AppRegistration
 
 #### Auto-Registration
 If you haven't entered your ClientId (AppId) and TenantID from Microsoft can perform Entra/Azure App Registration from within this script. If the details below sound tricky, just mindfully follow the prompts and you'll be moving quickly.
 
-<img width="2000" height="1000" alt="image" src="https://github.com/user-attachments/assets/d3c384f8-9610-4977-8338-a102b7f8f87c" />
+<img width="1000" height="500" alt="image" src="https://github.com/user-attachments/assets/d3c384f8-9610-4977-8338-a102b7f8f87c" />
 
 Since we are using Microsoft's `MSAL authentication module` with `Device Auth`, you'll need to ensure that 'Public Client Flows' is switched-on. You can do this manually, otherwise this blade will be opened up automatically.
 
@@ -30,7 +30,7 @@ Otherwise, if you want to set up Azure/Entra Appregistration Manually, you'll ne
 delegatedPermissions: "Sites.Read.All", "Files.Read.All", "User.Read", "offline_access"
 applicationPermissions: "Files.Read.All", "Sites.Read.All"
 ```
-<img width="629" height="131" alt="image" src="https://github.com/user-attachments/assets/0dccc77c-25b3-4a55-99f4-aa4ed5e8dcbb" />
+<img width="500" height="100" alt="image" src="https://github.com/user-attachments/assets/0dccc77c-25b3-4a55-99f4-aa4ed5e8dcbb" />
 
 ## Getting Started
 
@@ -60,7 +60,9 @@ It's reccomended to instantiate via dot-sourcing, ie
 
 it will check powershell version, get modules loaded, get you signed into hudu, check hudu version, and begin downloading all sites/files.
 
-you'll be asked to copy a code for authenticating via Microsoft Device Login. Simply copy the generated code and paste in after navigating [here](https://login.microsoftonline.com/common/oauth2/deviceauth) in a web browser. You'll then sign into Office/Azure/Entra as usual.
+You'll be asked to copy a code for authenticating via Microsoft Device Login. Simply copy the generated code and paste it after navigating to Microsoft's device authentication page, [here](https://login.microsoftonline.com/common/oauth2/deviceauth) in a web browser. You'll then sign into Office/Azure/Entra as usual.
+
+[<img width="1972" height="1184" alt="image" src="https://github.com/user-attachments/assets/02041a8d-b7ce-48f7-aa90-248d16798e3f" />](https://login.microsoftonline.com/common/oauth2/deviceauth)
 
 Just before the file conversion process begins, this script will download a and being the graphical installer for Libreoffice if it doesn't seem like Libreoffice is installed. Simply go through all the questions with default values, as the desired install path has already been set for you. If you already have Libreoffice installed, it will pick up on that in use the version you already have.
 
@@ -94,7 +96,6 @@ Just before the file conversion process begins, this script will download a and 
 #### Question 6 - **Would you like to Convert PowerPoints to Articles?**
 - **Convert powerpoints to articles**, effectively making an html table for this data
 - **Don't convert powerpoints**, just attach/upload them to Hudu 
-<img width="359" height="28" alt="image" src="https://github.com/user-attachments/assets/8e6bf587-6027-4a2b-846b-39be6710d4e0" />
 
 
 ## Supported Files?

@@ -40,8 +40,8 @@ $EmbeddableImageExtensions = @(
 )
 
 foreach ($folder in @($logsFolder, $downloadsFolder, $tmpfolder, $allSitesfolder, $ErroredItemsFolder)) {
-    if (!(Test-Path -Path "$folder")) { Write-Host "Making dir... $(New-Item "$folder" -ItemType Directory)" }
-        Write-Host "Clearing $folder... $(Get-ChildItem -Path "$folder" -File -Recurse -Force | Remove-Item -Force)"
+    if (!(Test-Path -Path "$folder")) { Set-PrintAndLog -message  "Making dir... $(New-Item "$folder" -ItemType Directory)" -Color DarkCyan }
+        Set-PrintAndLog -message "Clearing $folder... $(Get-ChildItem -Path "$folder" -File -Recurse -Force | Remove-Item -Force)" -Color DarkCyan
 }
 
 # Set up logging object
@@ -49,10 +49,11 @@ $RunSummary=@{
     State="Set-Up"
     CompletedStates=@()
     OutputJsonFiles = @{
-        SelectedSites    =   "$(join-path $tmpfolder -ChildPath "sites.json")"
-        SelectedFiles    =   "$(join-path $tmpfolder -ChildPath "files.json")"
-        SelectedFolders  =   "$(join-path $tmpfolder -ChildPath "folders.json")"
-        ConvertedFiles   =   "$(join-path $tmpfolder -ChildPath "converted.json")"
+        SelectedSites    =   "$(join-path $logsFolder -ChildPath "sites.json")"
+        SelectedFiles    =   "$(join-path $logsFolder -ChildPath "files.json")"
+        SelectedFolders  =   "$(join-path $logsFolder -ChildPath "folders.json")"
+        ConvertedFiles   =   "$(join-path $logsFolder -ChildPath "converted.json")"
+        SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
     }
     SetupInfo=@{
         HuduDestination     = $HuduBaseUrl
@@ -67,13 +68,12 @@ $RunSummary=@{
         PreviewLength       = 2500
         DisallowedForConvert = [System.Collections.ArrayList]@(
             ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a",
-".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj",
-".exe", ".msi", ".bat", ".cmd", ".sh", ".jar", ".app", ".apk", ".dmg", ".iso", ".img",
-".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz", ".lz",
-".mp4", ".avi", ".mov", ".wmv", ".mkv", ".webm", ".flv",
-".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend",
-".ds_store", ".thumbs", ".lnk", ".heic"
-
+            ".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj",
+            ".exe", ".msi", ".bat", ".cmd", ".sh", ".jar", ".app", ".apk", ".dmg", ".iso", ".img",
+            ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz", ".lz",
+            ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".webm", ".flv",
+            ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend",
+            ".ds_store", ".thumbs", ".lnk", ".heic"
         )
         LinkSourceArticles  = $true
         SourceFilesAsAttachments = $true
@@ -107,7 +107,7 @@ function Set-IncrementedState {
     $RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
     $RunSummary.State="$newstate"
     if ($pausable){
-        if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
+        if ($NonInteractive) {Set-PrintAndLog -message  "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -Color Green} else {Set-PrintandLog -message "Next Step: $($RunSummary.State)"; read-host "Prese Enter to proceed."}
     }
 }
 

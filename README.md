@@ -1,7 +1,7 @@
 # Hudu Sharepoint Migration
 Easy Migration from Sharepoint to Hudu
 
-## Getting Started
+## Setup
 
 ### Prerequisites
 
@@ -13,7 +13,26 @@ Easy Migration from Sharepoint to Hudu
 - Powershell 7.5.0 or later
 - Libreoffice Installed
 
-### Starting
+### Setup Azure AppRegistration
+
+#### Auto-Registration
+If you haven't entered your ClientId (AppId) and TenantID from Microsoft can perform Entra/Azure App Registration from within this script. If the details below sound tricky, just mindfully follow the prompts and you'll be moving quickly.
+
+<img width="2000" height="1000" alt="image" src="https://github.com/user-attachments/assets/d3c384f8-9610-4977-8338-a102b7f8f87c" />
+
+Since we are using Microsoft's `MSAL authentication module` with `Device Auth`, you'll need to ensure that 'Public Client Flows' is switched-on. You can do this manually, otherwise this blade will be opened up automatically.
+
+**At the end, you'll be given the option to remove this app registration**
+
+#### Manual-Registration
+Otherwise, if you want to set up Azure/Entra Appregistration Manually, you'll need to set up with the permissions, below, then place the ClientID (AppId) and TenantID in the top of the main script.
+```
+delegatedPermissions: "Sites.Read.All", "Files.Read.All", "User.Read", "offline_access"
+applicationPermissions: "Files.Read.All", "Sites.Read.All"
+```
+<img width="629" height="131" alt="image" src="https://github.com/user-attachments/assets/0dccc77c-25b3-4a55-99f4-aa4ed5e8dcbb" />
+
+## Getting Started
 
 #### Azure AppRegistration
 If you haven't already made an app registration, no worries, there is an inline app registration option. If you haven't added a ClientId and TenantId, it will prompt you to create one.

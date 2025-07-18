@@ -1,6 +1,6 @@
 $docIDX=0
 foreach ($doc in $StubbedArticles) {
-    write-host "starting $doc "
+    Set-PrintAndLog "starting populate for $doc " -Color DarkCyan
     $docIDX=$docIDX+1
     $completionPercentage = Get-PercentDone -Current $docIDX -Total $StubbedArticles.count
     $UploadedAsDoc=$false

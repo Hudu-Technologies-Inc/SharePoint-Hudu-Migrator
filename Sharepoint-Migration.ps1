@@ -8,10 +8,9 @@ $HUDU_MAX_DOCSIZE=$HUDU_MAX_DOCSIZE ?? 8500
 $HuduBaseUrl= $HuduBaseURL ?? $(read-host "enter hudu URL")
 $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 
-# 1.2 Sharepoint Set-up
+# 1.2 Sharepoint Set-up- Add these values here if you set up appregistration manually.
 $tenantId = $tenantId ?? $null
 $clientId = $clientId ?? $null
-
 $scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 
 # 1.3 Init and vars
@@ -42,7 +41,6 @@ Set-PrintAndLog -message "Checked Hudu Version... $(Get-HuduVersionCompatible)" 
 $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
 $clientId = $clientId ?? $registration.clientId
 $tenantId = $tenantId ?? $registration.tenantId
-
 clear-host
 
 # 1.4 Authenticate to Sharepoint
@@ -106,23 +104,29 @@ Set-IncrementedState -newState "Upload extracted/embedded images / attachments t
 Set-IncrementedState -newState "Relink Articles"
 . .\jobs\Relink-Articles.ps1
 
-Set-IncrementedState -newState "Clean Up secrets"
+##### Step 6, clean up vars, folders, appregistration and generate summary
+##
+# All set, clean up, and spit the facts, as the kids say.
+Set-IncrementedState -newState "Clean Up - AppRegistration"
+if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to remove the app registration used for this migration?") -eq "yes"){
+    Set-PrintAndLog -message "Removing App Registration and Service Principal... $(Remove-AppRegistrationAndSP -AppId $AppId)" -color Magenta
+}
+Set-IncrementedState -newState "Clean Up - vars"
 foreach ($varname in @("tenantId","clientId","scopes","HuduBaseUrl","HuduApiKey","SharePointHeaders","accessToken","tokenResult")) {
-    remove-variable -name varname -Force -ErrorAction SilentlyContinue
+    Set-PrintAndLog -message "Removing var $varname... $(remove-variable -name varname -Force -ErrorAction SilentlyContinue)"
+}
+Set-IncrementedState -newState "Clean Up - files"
+if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to clean up temp files? (not including logs)") -eq "yes"){
+    foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {Set-PrintAndLog -message "Clearing $folder... $(Get-ChildItem -Path "$folder" -File -Recurse -Force | Remove-Item -Force)" -color Magenta}
 }
 
-# Wrap up and generate summaries
 Set-IncrementedState -newState "Complete"
+Read-Host "Press Enter to Finish and Print Summary (available in )"
 $SummaryJson = $RunSummary | ConvertTo-Json -Depth 20
-
-# Nicely print a cleaned-up version to the console
 $SummaryJson -split "`n" | ForEach-Object {
     $_ -replace '[\{\[]', '⤵' `
        -replace '[\}\]]', '' `
        -replace '",', '"' `
        -replace '^', '  '
-}
-$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$(join-path $logsFolder -ChildPath "job-summary.json")"
-
-# Print final state summary
+}$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
 Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta

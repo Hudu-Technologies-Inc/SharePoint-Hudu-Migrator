@@ -128,20 +128,17 @@ function Get-PercentDone {
 function Set-PrintAndLog {
     param (
         [string]$message,
-
         [Parameter()]
+        [Alias("ForegroundColor")]
         [ValidateSet("Black","DarkBlue","DarkGreen","DarkCyan","DarkRed","DarkMagenta","DarkYellow","Gray","DarkGray","Blue","Green","Cyan","Red","Magenta","Yellow","White")]
         [string]$Color
     )
-
     $logline = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $message"
-
     if ($Color) {
         Write-Host $logline -ForegroundColor $Color
     } else {
         Write-Host $logline
     }
-
     Add-Content -Path $LogFile -Value $logline
 }
 function Select-ObjectFromList($objects,$message,$allowNull = $false) {

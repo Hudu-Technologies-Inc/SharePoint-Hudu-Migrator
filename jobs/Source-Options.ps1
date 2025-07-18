@@ -32,5 +32,5 @@ if ($RunSummary.JobInfo.MigrationSource.Identifier -eq 0) {
     [void]$userSelectedSites.AddRange($allSites)
     }
     if ($userSelectedSites.count -lt 1){
-        Write-Host "No Sites Selected. Please try again."
+        Write-Error "No Sites Selected. Please try again." -ForegroundColor Red
 }

@@ -226,3 +226,33 @@ function EnsureRegistration {
         tenantId = $tenantId
     }
 }
+function Remove-AppRegistrationAndSP {
+    param (
+        [Parameter(Mandatory=$true)][string]$AppId,
+        [Parameter(Mandatory=$false)][bool]$AndServicePrincipal = $true
+    )
+
+    # Check if az is available
+    $azPath = Get-Command az -ErrorAction SilentlyContinue
+    if (-not $azPath) {
+        Write-Host "Azure CLI wasnt used for creating registration during this run. Opening Entra Portal to manually delete the app registration..."
+        Start-Process "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/$AppId/isMSAApp~/false?Microsoft_AAD_IAM_legacyAADRedirect=true"
+        return
+    }
+
+    # Delete App Registration
+    Write-Host "Deleting App Registration: $AppId" -ForegroundColor Yellow
+    az ad app delete --id $AppId
+
+    # Delete associated Service Principal if requested
+    if ($AndServicePrincipal) {
+        Write-Host "Attempting to delete matching Service Principal..." -ForegroundColor Yellow
+        $spId = az ad sp list --filter "appId eq '$AppId'" --query '[0].id' --output tsv
+        if ($spId) {
+            az ad sp delete --id $spId
+            Write-Host "Service Principal removed: $spId" -ForegroundColor Green
+        } else {
+            Write-Host "No Service Principal found." -ForegroundColor Gray
+        }
+    }
+}

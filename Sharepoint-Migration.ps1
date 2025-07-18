@@ -9,8 +9,8 @@ $HuduBaseUrl= $HuduBaseURL ?? $(read-host "enter hudu URL")
 $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 
 # 1.2 Sharepoint Set-up
-$tenantId =  ?? $(read-host "enter Microsoft Tenant ID")
-$clientId = ?? $(read-host "enter Microsoft App Registration Client ID")
+$tenantId = $tenantId ?? $(read-host "enter Microsoft Tenant ID")
+$clientId = $clientId ?? $(read-host "enter Microsoft App Registration Client ID")
 $scopes = "Sites.Read.All"
 
 # 1.3 Init and vars
@@ -18,22 +18,13 @@ $userSelectedSites = [System.Collections.ArrayList]@()
 $AllDiscoveredFiles = [System.Collections.ArrayList]@()
 $AllDiscoveredFolders = [System.Collections.ArrayList]@()
 $Attribution_Options=[System.Collections.ArrayList]@()
-$TrackedAttachments = [System.Collections.ArrayList]@()
-$AllReplacedLinks =  [System.Collections.ArrayList]@()
-$AllFoundLinks =[System.Collections.ArrayList]@()
 $AllNewLinks = [System.Collections.ArrayList]@()        
-$discoveredFolders = [System.Collections.Generic.HashSet[string]]::new()
-$AllFolders = [System.Collections.Generic.HashSet[string]]::new()
 $discoveredFiles = [System.Collections.ArrayList]@()
-
-
 $ImageMap = @{}
 $allSites = @()
 $AllCompanies = @()
 $SingleCompanyChoice=@{}
-$FolderMap = @{}
-$SharePointToHuduUrlMap = @{}
-$Article_Relinking=@{}
+$StubbedArticles=@()
 
 foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort-Object Name)) {
     Write-Host "Importing: $($file.Name)" -ForegroundColor DarkBlue
@@ -55,7 +46,6 @@ $accessToken = $accessToken ?? $tokenResult.AccessToken
 $SharePointHeaders = @{ Authorization = "Bearer $accessToken" }
 
 
-
 ##### Step 2 Source and Dest Options
 ##
 #
@@ -64,12 +54,10 @@ Set-IncrementedState -newState "Source Data (Sharepoint) and Destination (Hudu) 
 . .\jobs\Source-Options.ps1
 Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
 Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
-$userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
+$userSelectedSites | ConvertTo-Json -Depth 45 | Out-Fles "$($RunSummary.OutputJsonFiles.SelectedSites)"
 
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1
-
-
 
 ##### Step 3, Get Source Data from Selection
 ##
@@ -79,7 +67,6 @@ Set-IncrementedState -newState "Download From Selection"
 Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
 $AllDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
 $AllDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
-
 
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##
@@ -95,15 +82,12 @@ Stop-LibreOffice
 Set-IncrementedState -newState "Convert Eligible Files"
 $successConverted=$(ConvertDownloadedFiles -downloadedFiles $AllDiscoveredFiles -sofficePath $sofficePath)
 
-
 Set-IncrementedState -newState "Read Now-Converted File Contents"
 . .\jobs\Read-ConvertedContents.ps1
-
 
 ##### Step 5, create articles, uploads, folders, then relink articles
 ##
 #
-$StubbedArticles=@()
 Set-IncrementedState -newState "Determine Company Designations and Folder Structure"
 . .\jobs\Make-ArticleStubs.ps1
 
@@ -116,12 +100,10 @@ Set-IncrementedState -newState "Upload extracted/embedded images / attachments t
 Set-IncrementedState -newState "Relink Articles"
 . .\jobs\Relink-Articles.ps1
 
-
 Set-IncrementedState -newState "Clean Up secrets"
 foreach ($varname in @("tenantId","clientId","scopes","HuduBaseUrl","HuduApiKey","SharePointHeaders","accessToken","tokenResult")) {
     remove-variable -name varname -Force -ErrorAction SilentlyContinue
 }
-
 
 # Wrap up and generate summaries
 Set-IncrementedState -newState "Complete"

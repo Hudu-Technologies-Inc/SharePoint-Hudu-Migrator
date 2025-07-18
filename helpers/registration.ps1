@@ -152,26 +152,26 @@ function Set-AzureAppRegistration {
     if ($DelegatedScopes.Count -gt 0) {
         Set-PrintAndLog -message "Applying Delegated permissions..." -Color DarkGreen
         foreach ($scope in $DelegatedScopes) {
-            az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$scope"
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 4
+            az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$scope" *> $null
         }
     }
     if ($ApplicationRoles.Count -gt 0) {
         Set-PrintAndLog -message "Applying Application permissions..." -Color DarkGreen
         foreach ($role in $ApplicationRoles) {
-            az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$role"
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 4
+            az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$role" *> $null
         }
     }
     if ($DelegatedScopes.Count -gt 0) {
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 6
         Set-PrintAndLog -message "Granting admin consent for Delegated permissions..." -Color DarkGreen
-        az ad app permission grant --id $AppId --api $GraphAppId --scope ($DelegatedScopes -replace "=Scope", "" -join " ")
+        $DelegatedScopesResult=$(az ad app permission grant --id $AppId --api $GraphAppId --scope ($DelegatedScopes -replace "=Scope", "" -join " "))
     }
     if ($ApplicationRoles.Count -gt 0) {
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 6
         Set-PrintAndLog -message "Granting admin consent for Application permissions..." -Color DarkGreen
-        az ad app permission admin-consent --id $AppId
+        $ApplicationRolesResult=$(az ad app permission admin-consent --id $AppId)
     }
     # Print final summary in a structured way
     return @{

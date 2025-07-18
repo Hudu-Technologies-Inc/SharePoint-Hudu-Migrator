@@ -98,6 +98,19 @@ $RunSummary=@{
     Errors                  = [System.Collections.ArrayList]@()
     Warnings                = [System.Collections.ArrayList]@()
 }
+
+function Set-IncrementedState {
+    param (
+        [string]$newstate,
+        [bool]$pausable=$false
+    )
+    $RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
+    $RunSummary.State="$newstate"
+    if ($pausable){
+        if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
+    }
+}
+
 function Set-HuduInstance {
     $HuduBaseURL = $HuduBaseURL ?? 
         $((Read-Host -Prompt 'Set the base domain of your Hudu instance (e.g https://myinstance.huducloud.com)') -replace '[\\/]+$', '') -replace '^(?!https://)', 'https://'

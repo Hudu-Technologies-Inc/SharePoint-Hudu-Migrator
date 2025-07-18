@@ -14,10 +14,11 @@ foreach ($doc in $StubbedArticles) {
     $AttachIDX=0
     foreach ($att in $doc.AllAttachments) {
         $AttachIDX+=1
-        $localPath = $att
-        $fileSize = (Get-Item $localPath).Length
-        $tooLarge = $fileSize -gt 100MB
-        $isImage = $att -match '\.(jpg|jpeg|png|gif|bmp)$'
+        $localPath      = $att
+        $fileSize       = (Get-Item $localPath).Length
+        $tooLarge       = [bool]$($fileSize -gt 100MB)
+        $isImage        = [bool]$($att -match '\.(jpg|jpeg|png)$')
+        $exists = Test-Path $localPath
 
         $record = [PSCustomObject]@{
             FileName           = $att
@@ -33,80 +34,78 @@ foreach ($doc in $StubbedArticles) {
             SuccessDownload    = $true
             AttachmentSize     = $fileSize
             AttachmentTooLarge = $tooLarge
+            exists             = $exists
         }
-        
-        # handle attachment not present
-        $exists = Test-Path $localPath
+        # handle image/attachment doesnt exist
         if (-not $exists) {
             Set-PrintAndLog -Message "Attachment missing on disk: $localPath" -Color Yellow
-            $RunSummary.Errors += @{
-                Attachment = $att
+            $errorObject=@{
+                Attachment = "$att"
                 Problem    = "File not found on disk."
-                Page       = "$($doc.title) (ID: $($doc.id))"
-                Article    = "$($doc.Stub.url)"
-                doc        = $doc
+                doc        = "$($doc.title), $($doc.id)"
+                Article    = "Hudu stub with id $($($doc.stub).id) at $($($doc.stub).url)"
             }
+            Write-ErrorObjectsToFile -ErrorObject $errorObject -name "Nofile-$($att)" -color Red
+            $RunSummary.Errors += $errorObject
             continue
         }
         # handle attachment is too large
         if ($true -eq $record.AttachmentTooLarge) {
             $ErrorObject=@{
-                Attachment = $record.Filename
+                Attachment = "$att"
                 Problem    = "$($record.Filename) is TOO LARGE for Hudu. Manual Action is required. Skipping."
-                page       = "Sharepoint page with Id $($doc.id), titled $($doc.title)"
+                doc        = "$($doc.title), $($doc.id)"
                 Article    = "Hudu stub with id $($($doc.stub).id) at $($($doc.stub).url)"
             }
-            $RunSummary.Errors = $ErrorObject
-            $RunSummary.JobInfo.UploadsErrored+=1
             Write-ErrorObjectsToFile -ErrorObject $ErrorObject -name "Attach-Error-$($record.Filename)"
+            $RunSummary.Errors += $errorObject
             continue
         }
 
-
-        Set-PrintAndLog -message "Downloaded Attachment $AttachIDX of $($doc.AllAttachments.Count) for $($doc.title) - $($attachment.filename ?? "File")" -Color Yellow
+        Set-PrintAndLog -message "Applying Attachment $AttachIDX of $($doc.AllAttachments.Count) for $($doc.title) - $($attachment.filename ?? "File")" -Color Yellow
         if ($record -and $record.SuccessDownload -and $record.LocalPath) {
             try {
                 Set-PrintAndLog -Message "Uploading image: $($record.FileName) => record_id=$($($doc.stub).id) record_type=Article" -Color Green
-                $upload=$null
+                $HuduUpload=$null
                 if ($record.IsImage) {
-                    $upload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article').public_photo)
+                    $HuduUpload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article').public_photo)
                 } else {
-                    $upload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
+                    $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
                 }
 
                 $mapEntry=[PSCustomObject]@{
                     doc           = $doc.id
                     PageTitle     = $doc.title
                     LocalFile     = $record.FileName
-                    HuduUrl       = $upload.url
-                    HuduUploadId  = $upload.id
+                    HuduUrl       = $HuduUpload.url
+                    HuduUploadId  = $HuduUpload.id
                 }
                 $AllNewLinks.Add($mapEntry)
                 $normalizedFileName = $record.FileName.ToLowerInvariant()
                 $ImageMap[$normalizedFileName] = @{
-                    Id   = $upload.id
+                    Id   = $HuduUpload.id
                     Type = if ($record.IsImage) { 'image' } else { 'upload' }
                 }
-                $upload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $record.FileName -Force
-                $upload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $upload.url -Force
-                $upload | Add-Member -NotePropertyName UploadType -NotePropertyValue $record.HuduUploadType -Force
-                $doc.UploadedFiles.add($upload)                
+                $HuduUpload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $record.FileName -Force
+                $HuduUpload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $HuduUpload.url -Force
+                $HuduUpload | Add-Member -NotePropertyName UploadType -NotePropertyValue $record.HuduUploadType -Force
+                $doc.UploadedFiles.add($HuduUpload)                
 
-                $record.UploadResult    = $upload
+                $record.UploadResult    = $HuduUpload
                 $record.HuduUploadType  = $ImageMap[$normalizedFileName].Type
                 $record.HuduArticleId   = $($doc.stub).id
                 $RunSummary.JobInfo.UploadsCreated += 1
             } catch {
                 $ErrorInfo=@{
-                    Error       =$_
+                    Error       = $_
                     Record      = $record.AttachmentSize ?? 0
                     Message     = "Error During Attachment Upload"
                     Article     = "Hudu Article id $($doc.stub.id) at $($doc.stub.url)"
-                    Page        = "Sharepoint page with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? '')"
+                    Doc         = "Sharepoint doc with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? '')"
                 }
                 $RunSummary.Errors.add($ErrorInfo)
                 $RunSummary.JobInfo.UploadsErrored+=1
-                Write-ErrorObjectsToFile -Name "$($record.FileName)" -ErrorObject $ErrorInfo
+                Write-ErrorObjectsToFile -Name "uploaderr-$($record.FileName)" -ErrorObject $ErrorInfo
             }
         }
     }

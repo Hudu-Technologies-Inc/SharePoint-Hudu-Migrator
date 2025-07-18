@@ -17,7 +17,6 @@ foreach ($file in $successConverted) {
     }
     Export-DocPropertyJson -Doc $file -Property 'AllAttachments'
     Export-DocPropertyJson -Doc $file -Property 'ReplacedLinks'
-
     Write-Progress -Activity "Reading Converted File Contents and Generating Previews, reading raw links." -Status "$completionPercentage%" -PercentComplete $completionPercentage
 }
 Set-PrintAndLog -message "Writing out converted file definitions to $("$($RunSummary.OutputJsonFiles.ConvertedFiles)")...!" -color DarkMagenta

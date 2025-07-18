@@ -11,8 +11,6 @@ $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 # 1.2 Sharepoint Set-up
 $tenantId =  ?? $(read-host "enter Microsoft Tenant ID")
 $clientId = ?? $(read-host "enter Microsoft App Registration Client ID")
-
-## todo: Optional auto app registration (and deregistration later) step
 $scopes = "Sites.Read.All"
 
 # 1.3 Init and vars
@@ -58,16 +56,10 @@ $SharePointHeaders = @{ Authorization = "Bearer $accessToken" }
 
 
 
-
-
-
-
 ##### Step 2 Source and Dest Options
 ##
 #
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Source Data (Sharepoint) and Destination (Hudu) Options"
-if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
+Set-IncrementedState -newState "Source Data (Sharepoint) and Destination (Hudu) Options"
 # 2.1 Select Source Options
 . .\jobs\Source-Options.ps1
 Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
@@ -79,70 +71,70 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 
 
 
-
-
-
-
-
 ##### Step 3, Get Source Data from Selection
 ##
 #
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Download From Selection"
-if ($NonInteractive) {Set-PrintAndLog "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
+Set-IncrementedState -newState "Download From Selection"
 . .\jobs\Get-SourceData.ps1
 Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
 $AllDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
 $AllDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
 
 
-
-
-
-
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##
 #
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Initialize Libreoffice/Poppler and Convert Files"
-if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
-
+Set-IncrementedState -newState "Initialize Libreoffice/Poppler and Convert Files"
 Set-PrintAndLog "Checking for Libreoffice and installing if not present. If not presnt, follow the on-screen prompts from the installer with default values and don't select 'Run When Finished' for the last question" -color Green
+
+# Step 4.1 Init Libre / Poppler
 $sofficePath=$(if ($true -eq $portableLibreOffice) {$(Get-LibrePortable -tmpfolder $tmpfolder)} else {$(Get-LibreMSI -tmpfolder $tmpfolder)})
 Stop-LibreOffice
+
+# Step 4.2 Convert Files
+Set-IncrementedState -newState "Convert Eligible Files"
 $successConverted=$(ConvertDownloadedFiles -downloadedFiles $AllDiscoveredFiles -sofficePath $sofficePath)
+
+
+Set-IncrementedState -newState "Read Now-Converted File Contents"
 . .\jobs\Read-ConvertedContents.ps1
 
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Create Folder Sructure and stub articles"
-if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
 
+##### Step 5, create articles, uploads, folders, then relink articles
+##
+#
 $StubbedArticles=@()
-$docIDX=0
-# Stub articles
-
+Set-IncrementedState -newState "Determine Company Designations and Folder Structure"
 . .\jobs\Make-ArticleStubs.ps1
 
-
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Images and attachments to Hudu"
-if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
-
-
+Set-IncrementedState -newState "Populate initial data into articles"
 . .\jobs\Populate-Articles.ps1
 
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Relink Uploaded Images to Hudu"
-if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
-
-
-
+Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu"
 . .\jobs\Upload-Images.ps1
 
-$RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
-$RunSummary.State="Populate Articles In Hudu"
-if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
-
-
-
+Set-IncrementedState -newState "Relink Articles"
 . .\jobs\Relink-Articles.ps1
+
+
+Set-IncrementedState -newState "Clean Up secrets"
+foreach ($varname in @("tenantId","clientId","scopes","HuduBaseUrl","HuduApiKey","SharePointHeaders","accessToken","tokenResult")) {
+    remove-variable -name varname -Force -ErrorAction SilentlyContinue
+}
+
+
+# Wrap up and generate summaries
+Set-IncrementedState -newState "Complete"
+$SummaryJson = $RunSummary | ConvertTo-Json -Depth 20
+
+# Nicely print a cleaned-up version to the console
+$SummaryJson -split "`n" | ForEach-Object {
+    $_ -replace '[\{\[]', '⤵' `
+       -replace '[\}\]]', '' `
+       -replace '",', '"' `
+       -replace '^', '  '
+}
+$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$(join-path $logsFolder -ChildPath "job-summary.json")"
+
+# Print final state summary
+Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta

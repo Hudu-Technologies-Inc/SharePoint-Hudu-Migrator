@@ -34,47 +34,43 @@ function Download-GraphDriveItemsRecursively {
                 "$($item.sharepointIds.siteUrl)/_layouts/15/download.aspx?UniqueId={$($item.id)}"
             ) | Where-Object { $_ -and ($_ -notmatch 'null')  -and ($_ -notmatch '') }
             $discoveredFiles.Add([PSCustomObject]@{
-                Name        = $item.name
-                LocalPath   = $itemPath
-                SiteId      = $siteId
-                SiteName      = $siteName
-                DriveId     = $driveId
-                FolderId    = $folderId
-                DownloadUrl    = $item."@microsoft.graph.downloadUrl"
-                webViewUrl     = $item.webUrl
-                webDAVUrl       = $item.webDavUrl
-                sharepointSiteUrl  = $item.sharepointIds.siteUrl
-                sharepointListId   = $item.sharepointIds.listId
-                sharepointItemId   = $item.sharepointIds.listItemId
-                parentDrivePath    = $item.parentReference.path                
-                HuduFolder        = $null
-                HuduFolderId      = $null
-                HuduArticle       = $null
-                HuduFolderUUID    = $([guid]::NewGuid().ToString())
-                companyID         = $null
-                RawContent        = $null
-                HtmlContent       = $null
-                OriginalFilename = $item.name
-                ReplacedContent   = $null
-                OriginalLinks     = $originalLinks
-                Stub              = $null
-                BaseLinks         = $null
-                ReplacedLinks     = $null
-                Links             = $null
-                UploadedFiles     = [System.Collections.ArrayList]@()
-                ContentPreview    = ""
-                UsingGeneratedHTML= $false
-                CharsTrimmed      = 0                
-                title             = $(Get-SafeTitle -name $item.name)
-                Id                = $item.id
-                RelativePath     = $relativePath 
-                Filesize        = (Get-Item $itemPath).Length
-                FileTooLarge = ((Get-Item $itemPath).Length -gt 100MB)
+                Name                = $item.name
+                LocalPath           = $itemPath
+                SiteId              = $siteId
+                SiteName            = $siteName
+                DriveId             = $driveId
+                FolderId            = $folderId
+                DownloadUrl         = $item."@microsoft.graph.downloadUrl"
+                webViewUrl          = $item.webUrl
+                webDAVUrl           = $item.webDavUrl
+                sharepointSiteUrl   = $item.sharepointIds.siteUrl
+                sharepointListId    = $item.sharepointIds.listId
+                sharepointItemId    = $item.sharepointIds.listItemId
+                parentDrivePath     = $item.parentReference.path                
+                HuduFolder          = $null
+                HuduFolderId        = $null
+                HuduArticle         = $null
+                HuduFolderUUID      = $([guid]::NewGuid().ToString())
+                companyID           = $null
+                RawContent          = $null
+                OriginalFilename    = $item.name
+                ReplacedContent     = $null
+                OriginalLinks       = $originalLinks
+                Stub                = $null
+                ReplacedLinks       = $null
+                Links               = $null
+                UploadedFiles       = [System.Collections.ArrayList]@()
+                ContentPreview      = ""
+                UsingGeneratedHTML  = $false
+                CharsTrimmed        = 0                
+                title               = $(Get-SafeTitle -name $item.name)
+                Id                  = $item.id
+                RelativePath        = $relativePath 
+                Filesize            = (Get-Item $itemPath).Length
+                FileTooLarge        = ((Get-Item $itemPath).Length -gt 100MB)
             })
-
             Set-PrintAndLog -message "Downloaded: $itemPath" -Color DarkMagenta
         }
     }
-
     return $discoveredFiles
 }

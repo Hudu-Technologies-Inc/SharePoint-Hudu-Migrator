@@ -9,8 +9,9 @@ $HuduBaseUrl= $HuduBaseURL ?? $(read-host "enter hudu URL")
 $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 
 # 1.2 Sharepoint Set-up
-$tenantId = $tenantId ?? $(read-host "enter Microsoft Tenant ID")
-$clientId = $clientId ?? $(read-host "enter Microsoft App Registration Client ID")
+$tenantId = $tenantId ?? $null
+$clientId = $clientId ?? $null
+
 $scopes = "Sites.Read.All"
 
 # 1.3 Init and vars
@@ -38,6 +39,10 @@ Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatibl
 Set-PrintAndLog -message "Imported Hudu Module... $(Get-HuduModule)" -Color DarkBlue
 Set-PrintAndLog -message "Checked Hudu Credentials... $(Set-HuduInstance)" -Color DarkBlue
 Set-PrintAndLog -message "Checked Hudu Version... $(Get-HuduVersionCompatible)" -Color DarkBlue
+$registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
+$clientId = $clientId ?? $registration.clientId
+$tenantId = $tenantId ?? $registration.tenantId
+
 clear-host
 
 # 1.4 Authenticate to Sharepoint

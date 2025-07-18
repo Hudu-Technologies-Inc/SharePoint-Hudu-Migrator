@@ -46,6 +46,7 @@ $tenantId = $tenantId ?? $registration.tenantId
 clear-host
 
 # 1.4 Authenticate to Sharepoint
+Start-Process "https://microsoft.com/devicelogin"
 $tokenResult = $tokenResult ?? $(Get-MsalToken -ClientId $clientId -TenantId $tenantId -DeviceCode -Scopes $scopes)
 $accessToken = $accessToken ?? $tokenResult.AccessToken
 $SharePointHeaders = @{ Authorization = "Bearer $accessToken" }

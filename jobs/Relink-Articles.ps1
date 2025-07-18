@@ -71,7 +71,7 @@ function Relink-DocumentUploads {
         $doc.ReplacedLinks = Get-LinksFromHTML -htmlContent $updatedHTML -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $false
         Save-HtmlSnapshot -PageId $doc.id -Title $doc.title -Content $updatedHTML -Suffix "relinked" -OutDir $tmpfolder
         Export-DocPropertyJson -Doc $doc -Property 'ReplacedLinks'
-        Write-Host "Relinked HTML: $htmlPath" -ForegroundColor Green
+        Set-PrintAndLog "Relinked HTML: $htmlPath" -Color Green
     }
 }
 Relink-DocumentUploads -docs $stubbedArticles

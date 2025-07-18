@@ -6,7 +6,7 @@ function Set-AzureAppRegistration {
         [System.Collections.ArrayList]$ApplicationPermissions=@("User.Read")
 
     )
-    Write-Host "Starting App Registration create/update for $SAMDisplayName with $($delegatedPermissions.count) Delegated permissions and $($ApplicationPermissions.count) application permissions"
+    Set-PrintAndLog -message "Starting App Registration create/update for $SAMDisplayName with $($delegatedPermissions.count) Delegated permissions and $($ApplicationPermissions.count) application permissions" -Color DarkGreen
 
      # Alt URL for redirects
     $env:AZURE_CLI_ENCODING = "UTF-8"
@@ -14,146 +14,156 @@ function Set-AzureAppRegistration {
 
     # install/import az module, set initial AZ context
     foreach ($module in @('Az')) {if (Get-Module -ListAvailable -Name $module) 
-        { Write-Host "Importing module, $module"; Import-Module $module } else {Write-Host "Installing and importing module $module...... Please be patient, it can take a while."; Install-Module $module -Force -AllowClobber; Import-Module $module }
+        { Set-PrintAndLog -message "Importing module, $module... (please be patient. AZ takes a while.)" -Color DarkGreen; Import-Module $module } else {Set-PrintAndLog -message "Installing and importing module $module...... Please be patient, it can take a while." -Color DarkGreen; Install-Module $module -Force -AllowClobber; Import-Module $module }
     }
     if (-not (Get-AzContext)) {
         try {
             Connect-AzAccount -UseDeviceAuthentication -ErrorAction Stop
         } catch {
-            Write-Error "Failed to connect to Azure. Error: $_"
+            Write-Error "Failed to connect to Azure. Error: $_" -ForegroundColor Red
             exit 1
         }
     } else {
-        Write-Host "AZContext already set. Skipping Sign-on."
+        Set-PrintAndLog -message "AZContext already set. Skipping Sign-on." -Color Green
     }
     # Checking for AZ CLI and installing
     Write-Host "Checking for AZ CLI..."
     $azCommand = Get-Command az -ErrorAction SilentlyContinue
     if (-not $azCommand) {
-        Write-Host "AZ CLI command not found! If this script was ran as Administrator, we can install it, let's check."
+        Set-PrintAndLog -message "AZ CLI command not found! If this script was ran as Administrator, we can install it, let's check." -Color DarkYellow
         if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-            Write-Error "You will need AZ CLI to run this script. If you want to install AZ CLI with this script, run again as admin, otherwise install AZ CLI Manually before running..."
+            Set-PrintAndLog -message "You will need AZ CLI to run this autoregistration. If you want to install AZ CLI with this script, run again as admin, otherwise install AZ CLI Manually before running..." -Color Red
             exit 1
         }
         try {
-            Write-Host "Attempting WinGet install of AZ CLI via PowerShell module from PSGallery..."
-            Write-Host "Setting up Nuget Provider for AZ CLI... $(Install-PackageProvider -Name NuGet -Force)"
-            Write-Host "Setting up PSGallery for AZ CLI... $(Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery)"
-            Write-Host "Ensuring Winget for AZ CLI... $(Repair-WinGetPackageManager)"
-            Write-Host "Using Winget to install Azure CLI... $(winget install -e --id Microsoft.AzureCLI)"
+            Set-PrintAndLog -message "Attempting WinGet install of AZ CLI via PowerShell module from PSGallery..." -Color DarkYellow
+            Set-PrintAndLog -message "Setting up Nuget Provider for AZ CLI... $(Install-PackageProvider -Name NuGet -Force)" -Color DarkYellow
+            Set-PrintAndLog -message "Setting up PSGallery for AZ CLI... $(Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery)" -Color DarkYellow
+            Set-PrintAndLog -message "Ensuring Winget for AZ CLI... $(Repair-WinGetPackageManager)" -Color DarkYellow
+            Set-PrintAndLog -message "Using Winget to install Azure CLI... $(winget install -e --id Microsoft.AzureCLI)" -Color DarkYellow
         } catch {
-            write-host "Couldnt install AZ CLI via Winget. Attempting install via MSI package."
-            Write-Host "Downloading MSI Package to .\AzureCLI.msi... $(Invoke-WebRequest -Uri https://aka.ms/installazurecliwindowsx64 -OutFile .\AzureCLI.msi)"
-            Write-Host "Installing AZ CLI via MSI Package in Background... $(Start-Process msiexec.exe -Wait -ArgumentList '/I AzureCLI.msi /quiet')"
-            Write-Host "Clean up MSI Package file post-install... $(Remove-Item .\AzureCLI.msi -Force)"
+            Set-PrintAndLog -message  "Couldnt install AZ CLI via Winget. Attempting install via MSI package." -Color DarkYellow
+            Set-PrintAndLog -message  "Downloading MSI Package to .\AzureCLI.msi... $(Invoke-WebRequest -Uri https://aka.ms/installazurecliwindowsx64 -OutFile .\AzureCLI.msi)" -Color DarkYellow
+            Set-PrintAndLog -message  "Installing AZ CLI via MSI Package in Background... $(Start-Process msiexec.exe -Wait -ArgumentList '/I AzureCLI.msi /quiet')" -Color DarkYellow
+            Set-PrintAndLog -message  "Clean up MSI Package file post-install... $(Remove-Item .\AzureCLI.msi -Force)" -Color DarkYellow
         }
-    } else { Write-Host "Azure CLI is available at: $($azCommand.Path)" }
+    } else { Set-PrintAndLog -message "Azure CLI is available at: $($azCommand.Path)" -Color Green }
 
     # Sign in with AZ CLI
-    Write-Host "AZ CLI is present and available. Attempting login with AZ CLI if not already authenticated..."
+    Set-PrintAndLog -message "AZ CLI is present and available. Attempting login with AZ CLI if not already authenticated..." -Color DarkGreen
     try {
         # Check if already logged in
         $account = az account show --output json | ConvertFrom-Json
         if ($account -and $account.id) {
-            Write-Host "Already logged into Azure CLI as: $($account.user.name)"
+            Set-PrintAndLog -message "Already logged into Azure CLI as: $($account.user.name)" -Color Green
         } else {
             throw "No active Azure account."
         }
     } catch {
         # If not logged in, log in
-        Write-Host "Not logged into Azure CLI. Attempting to log in..."
+        Set-PrintAndLog -message "Not logged into Azure CLI. Attempting to log in..." -Color DarkGreen
         try {
             az login --use-device-code
-            Write-Host "Successfully logged into Azure CLI."
+            Set-PrintAndLog -message "Successfully logged into Azure CLI." -Color Green
         } catch {
-            Write-Error "Failed to log in to Azure CLI. Exiting."
+            Write-Error "Failed to log in to Azure CLI. Exiting." -ForegroundColor Red
             exit 1
         }
     }
 
-    # Step 1: List Available Tenant IDs (Optional)
-    Write-Host "Step 1: Select Tenants"
+    Set-PrintAndLog -message "Step 1: Select Tenants" -Color Green
     $Tenants = az account list --query "[].{Name:name, TenantId:tenantId, SubscriptionId:id}" --output json | ConvertFrom-Json
-    Write-Host "Available Tenants:"
-    Write-Host $Tenants
-    $TenantId = Read-Host "Enter the Tenant ID to use (leave blank for current)"
-    if ($TenantId -ne "") {
+
+    if ($Tenants.Count -eq 1) {
+        $TenantId = $Tenants[0].TenantId
+        Set-PrintAndLog -message "Only one tenant found. Using: $TenantId ($($Tenants[0].Name))" -Color Yellow
         az account set --tenant $TenantId
-        Write-Host "Switched to Tenant: $TenantId"
     } else {
-        $TenantId = az account show --query tenantId --output tsv
-        Write-Host "Using current Tenant: $TenantId"
+        Set-PrintAndLog -message "Available Tenants:" -Color Green
+        $Tenants | ForEach-Object {
+            Set-PrintAndLog -message "$($_.Name) - $($_.TenantId)" -Color Blue
+        }
+
+        $TenantId = Read-Host "Enter the Tenant ID to use (leave blank for current)"
+        
+        if ($TenantId -ne "") {
+            az account set --tenant $TenantId
+            Set-PrintAndLog -message "Switched to Tenant: $TenantId" -Color Green
+        } else {
+            $TenantId = az account show --query tenantId --output tsv
+            Set-PrintAndLog -message "Using current Tenant: $TenantId" -Color Green
+        }
     }
 
     # Step 2, find or create app
-    Write-Host "Step 2: Find or Create App"
+    Set-PrintAndLog -message "Step 2: Find or Create App" -Color DarkGreen
     $AppId = az ad app list --all --display-name "$SAMDisplayName" --query "[?displayName=='$SAMDisplayName'].appId" --output tsv
     if ($AppId) {
-        Write-Host "App '$SAMDisplayName' already exists with ID: $AppId"
+        Set-PrintAndLog -message "App '$SAMDisplayName' already exists with ID: $AppId" -Color Green
     } else {
-        Write-Host "Creating new App Registration: $SAMDisplayName"
+        Set-PrintAndLog -message "Creating new App Registration: $SAMDisplayName" -Color Green
         $AppId = az ad app create `
             --display-name "$SAMDisplayName" `
             --query appId --output tsv
-        Write-Host "Created App with ID: $AppId"
+        Set-PrintAndLog -message "Created App with ID: $AppId" -Color Green
     }
 
     # Step 3, find or create Service Principal
-    Write-Host "Step 3: Find or Create Service Principal"
+    Set-PrintAndLog -message "Step 3: Find or Create Service Principal" -Color DarkGreen
     $ServicePrincipalId = az ad sp list --all --query "[?appId=='$AppId'].id" --output tsv
     if (-not $ServicePrincipalId) {
-        Write-Host "Creating Service Principal for App ID: $AppId"
+        Set-PrintAndLog -message "Creating Service Principal for App ID: $AppId" -Color DarkGreen
         $ServicePrincipalId = az ad sp create --id "$AppId" --query id --output tsv
-        Write-Host "Created Service Principal with ID: $ServicePrincipalId"
+        Set-PrintAndLog -message "Created Service Principal with ID: $ServicePrincipalId" -Color DarkGreen
     } else {
-        Write-Host "Service Principal already exists with ID: $ServicePrincipalId"
+        Set-PrintAndLog -message "Service Principal already exists with ID: $ServicePrincipalId" -Color DarkGreen
     }
 
     # Step 4: Get Service Principal Type(s) from user, desired permissions, scopes, roles
-    Write-Host "Step 4: Get Service Principal Type(s) from user, desired permissions, scopes, roles"
+    Set-PrintAndLog -message "Step 4: Get Service Principal Type(s) from user, desired permissions, scopes, roles" -Color DarkGreen
     $GraphAppId = az ad sp list --filter "displayName eq 'Microsoft Graph'" --query "[].appId" --output tsv
     $PermissionsToAssign = @()
     $PermissionsToAssign = $DelegatedPermissions + $ApplicationPermissions
 
     # Step 5, Apply Desired AD Service Principal Permissions/Scopes
-    Write-Host "Step 5, Apply Desired AD Service Principal Permissions/Scopes"
+    Set-PrintAndLog -message "Step 5, Apply Desired AD Service Principal Permissions/Scopes" -Color DarkGreen
     $DelegatedScopes = @()
     $ApplicationRoles = @()
     foreach ($permission in $PermissionsToAssign) {
-        Write-Host "Retrieving permission ID for '$permission'..."
+        Set-PrintAndLog -message "Retrieving permission ID for '$permission'..." -Color DarkGreen
         $PermissionId = az ad sp show --id $GraphAppId --query "appRoles[?value=='$permission'].id" --output tsv
         if (-not $PermissionId) {
             $PermissionId = az ad sp show --id $GraphAppId --query "oauth2PermissionScopes[?value=='$permission'].id" --output tsv
             if ($PermissionId) {
-                Write-Host "Granting $permission ($PermissionId) as Scope (Delegated permission)..."
+                Set-PrintAndLog -message "Granting $permission ($PermissionId) as Scope (Delegated permission)..." -Color Green
                 $DelegatedScopes += "$PermissionId=Scope"
             } else {
-                Write-Host "Warning: Permission '$permission' not found in Microsoft Graph API!"
+                Set-PrintAndLog -message "Warning: Permission '$permission' not found in Microsoft Graph API!" -Color DarkYellow
             }
         } else {
-            Write-Host "Granting $permission ($PermissionId) as Role (Application permission)..."
+            Set-PrintAndLog -message "Granting $permission ($PermissionId) as Role (Application permission)..." -Color Green
             $ApplicationRoles += "$PermissionId=Role"
         }
     }
-    Write-Host "Step 5, Apply Desired AD Service Principal Permissions/Scopes"
+    Set-PrintAndLog -message "Step 5, Apply Desired AD Service Principal Permissions/Scopes" -Color DarkGreen
     if ($DelegatedScopes.Count -gt 0) {
-        Write-Host "Applying Delegated permissions..."
+        Set-PrintAndLog -message "Applying Delegated permissions..." -Color DarkGreen
         foreach ($scope in $DelegatedScopes) {
             az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$scope"
         }
     }
     if ($ApplicationRoles.Count -gt 0) {
-        Write-Host "Applying Application permissions..."
+        Set-PrintAndLog -message "Applying Application permissions..." -Color DarkGreen
         foreach ($role in $ApplicationRoles) {
             az ad app permission add --id $AppId --api $GraphAppId --api-permissions "$role"
         }
     }
     if ($DelegatedScopes.Count -gt 0) {
-        Write-Host "Granting admin consent for Delegated permissions..."
+        Set-PrintAndLog -message "Granting admin consent for Delegated permissions..." -Color DarkGreen
         az ad app permission grant --id $AppId --api $GraphAppId --scope ($DelegatedScopes -replace "=Scope", "" -join " ")
     }
     if ($ApplicationRoles.Count -gt 0) {
-        Write-Host "Granting admin consent for Application permissions..."
+        Set-PrintAndLog -message "Granting admin consent for Application permissions..." -Color DarkGreen
         az ad app permission admin-consent --id $AppId
     }
     # Print final summary in a structured way
@@ -166,7 +176,6 @@ function Set-AzureAppRegistration {
         GraphAppId              = $GraphAppId
         Account                 = $account
         RegistrationUrl         = "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/$AppId/isMSAApp~/false?Microsoft_AAD_IAM_legacyAADRedirect=true"
-
     }
 
 
@@ -200,7 +209,7 @@ function EnsureRegistration {
                 continue
             }
 
-            Write-Host "Now, make sure Device Code Flow is enabled in your app registration." -ForegroundColor Cyan
+            Set-PrintAndLog -message "Now, make sure Device Code Flow is enabled in your app registration." -ForegroundColor Cyan
             Write-Host "`nTo do this:" -ForegroundColor Cyan
             Write-Host "1. Open your app registration in Azure Portal $($newAppRegResult.RegistrationUrl)" -ForegroundColor Cyan
             Write-Host "2. Go to Authentication > Advanced Settings" -ForegroundColor Cyan
@@ -235,24 +244,24 @@ function Remove-AppRegistrationAndSP {
     # Check if az is available
     $azPath = Get-Command az -ErrorAction SilentlyContinue
     if (-not $azPath) {
-        Write-Host "Azure CLI wasnt used for creating registration during this run. Opening Entra Portal to manually delete the app registration..."
+        Set-PrintAndLog -message "Azure CLI wasnt used for creating registration during this run. Opening Entra Portal to manually delete the app registration..."
         Start-Process "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/$AppId/isMSAApp~/false?Microsoft_AAD_IAM_legacyAADRedirect=true"
         return
     }
 
     # Delete App Registration
-    Write-Host "Deleting App Registration: $AppId" -ForegroundColor Yellow
+    Set-PrintAndLog -message "Deleting App Registration: $AppId" -ForegroundColor Yellow
     az ad app delete --id $AppId
 
     # Delete associated Service Principal if requested
     if ($AndServicePrincipal) {
-        Write-Host "Attempting to delete matching Service Principal..." -ForegroundColor Yellow
+        Set-PrintAndLog -message "Attempting to delete matching Service Principal..." -Color Yellow
         $spId = az ad sp list --filter "appId eq '$AppId'" --query '[0].id' --output tsv
         if ($spId) {
             az ad sp delete --id $spId
-            Write-Host "Service Principal removed: $spId" -ForegroundColor Green
+            Set-PrintAndLog -message "Service Principal removed: $spId" -Color Green
         } else {
-            Write-Host "No Service Principal found." -ForegroundColor Gray
+            Set-PrintAndLog -message "No Service Principal found." -Color Gray
         }
     }
 }

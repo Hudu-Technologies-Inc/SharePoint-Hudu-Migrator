@@ -40,8 +40,8 @@ $EmbeddableImageExtensions = @(
 )
 
 foreach ($folder in @($logsFolder, $downloadsFolder, $tmpfolder, $allSitesfolder, $ErroredItemsFolder)) {
-    if (!(Test-Path -Path "$folder")) { Write-Host "Making dir... $(New-Item "$folder" -ItemType Directory)" }
-        Write-Host "Clearing $folder... $(Get-ChildItem -Path "$folder" -File -Recurse -Force | Remove-Item -Force)"
+    if (!(Test-Path -Path "$folder")) { Set-PrintAndLog -message  "Making dir... $(New-Item "$folder" -ItemType Directory)" -Color DarkCyan }
+        Set-PrintAndLog -message "Clearing $folder... $(Get-ChildItem -Path "$folder" -File -Recurse -Force | Remove-Item -Force)" -Color DarkCyan
 }
 
 # Set up logging object
@@ -107,7 +107,7 @@ function Set-IncrementedState {
     $RunSummary.CompletedStates += "$($RunSummary.State) finished At $($($(Get-Date) - $RunSummary.SetupInfo.StartedAt).ToString())"
     $RunSummary.State="$newstate"
     if ($pausable){
-        if ($NonInteractive) {write-host "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -ForegroundColor Green} else {read-host "Prese Enter to proceed to $($RunSummary.State)"}
+        if ($NonInteractive) {Set-PrintAndLog -message  "Noninteractive-Mode enabled. Proceeding to $($RunSummary.State)" -Color Green} else {Set-PrintandLog -message "Next Step: $($RunSummary.State)"; read-host "Prese Enter to proceed."}
     }
 }
 

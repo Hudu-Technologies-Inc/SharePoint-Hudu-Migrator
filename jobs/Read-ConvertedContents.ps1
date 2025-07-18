@@ -3,7 +3,7 @@ $ReadContentsIdx=0
 # Read raw contents for linking later
 # Use b64-removed content for preview now
 foreach ($file in $successConverted) {
-    Write-Host "Checking file: $($file.LocalPath); NewPath: $($file.NewPath)" -ForegroundColor Cyan
+    Set-PrintAndLog "Checking file: $($file.LocalPath); NewPath: $($file.NewPath)" -Color DarkCyan
     $ReadContentsIdx=$ReadContentsIdx+1
     $completionPercentage = Get-PercentDone -Current $ReadContentsIdx -Total $successConverted.count
     if ($file.NewPath -and (Test-Path $file.NewPath)) {

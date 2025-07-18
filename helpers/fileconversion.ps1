@@ -39,7 +39,7 @@ function Convert-WithLibreOffice {
         }
         if ($intermediateExt) {
             $intermediatePath = Join-Path $outputDir "$baseName.$intermediateExt"
-            Write-Host "Step 1: Converting to .$intermediateExt..." -ForegroundColor Cyan
+            Set-PrintAndLog -message "Step 1: Converting to .$intermediateExt..." -Color DarkCyan
 
             Start-Process -FilePath "$sofficePath" `
                 -ArgumentList "--headless", "--convert-to", $intermediateExt, "--outdir", "`"$outputDir`"", "`"$inputFile`"" `
@@ -53,7 +53,7 @@ function Convert-WithLibreOffice {
             $intermediatePath = $inputFile
         }
 
-        Write-Host "Step 2: Converting .$intermediateExt to XHTML..." -ForegroundColor Cyan
+        Set-PrintAndLog -message  "Step $(if ($intermediateExt) {'2'} else {'1'}): Converting .$intermediateExt to XHTML..." -Color DarkCyan
 
         Start-Process -FilePath "$sofficePath" `
             -ArgumentList "--headless", "--convert-to", "xhtml", "--outdir", "`"$outputDir`"", "`"$intermediatePath`"" `
@@ -358,7 +358,7 @@ function Convert-PdfXmlToHtml {
 
     $html += '</body></html>'
     Set-Content -Path $OutputHtmlPath -Value ($html -join "`n") -Encoding UTF8
-    Write-Host "Generated slim HTML: $OutputHtmlPath"
+    Set-PrintAndLog -message  "Generated slim HTML: $OutputHtmlPath" -Color Green
 }
 function Convert-PdfToHtml {
     param (
@@ -421,6 +421,6 @@ function Save-Base64ToFile {
     $bytes = [System.Convert]::FromBase64String($Base64String)
     [System.IO.File]::WriteAllBytes($OutputPath, $bytes)
 
-    Write-Host "Saved Base64 content to: $OutputPath" -ForegroundColor Cyan
+    Set-PrintAndLog -message  "Saved Base64 content to: $OutputPath" -Color Cyan
 }
 

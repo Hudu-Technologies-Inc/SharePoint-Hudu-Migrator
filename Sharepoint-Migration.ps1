@@ -54,7 +54,7 @@ Set-IncrementedState -newState "Source Data (Sharepoint) and Destination (Hudu) 
 . .\jobs\Source-Options.ps1
 Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
 Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
-$userSelectedSites | ConvertTo-Json -Depth 45 | Out-Fles "$($RunSummary.OutputJsonFiles.SelectedSites)"
+$userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
 
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1

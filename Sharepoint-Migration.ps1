@@ -116,8 +116,18 @@ foreach ($varname in @("tenantId","clientId","scopes","HuduBaseUrl","HuduApiKey"
     Set-PrintAndLog -message "Removing var $varname... $(remove-variable -name varname -Force -ErrorAction SilentlyContinue)"
 }
 Set-IncrementedState -newState "Clean Up - files"
-if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to clean up temp files? (not including logs)") -eq "yes"){
-    foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {Set-PrintAndLog -message "Clearing $folder... $(Get-ChildItem -Path "$folder" -File -Recurse -Force | Remove-Item -Force)" -color Magenta}
+foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
+    Set-PrintAndLog -message "Clearing $folder..." -Color Magenta
+
+    try {
+        Get-ChildItem -Path $folder -File -Recurse -Force | Remove-Item -Force -ErrorAction Stop
+    } catch {
+        Set-PrintAndLog -message "Failed to clear $folder $($_.Exception.Message)" -Color Red
+        $RunSummary.Errors += @{
+            Folder = $folder
+            Error  = $_.Exception.Message
+        }
+    }
 }
 
 Set-IncrementedState -newState "Complete"
@@ -130,3 +140,4 @@ $SummaryJson -split "`n" | ForEach-Object {
        -replace '^', '  '
 }$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
 Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta
+

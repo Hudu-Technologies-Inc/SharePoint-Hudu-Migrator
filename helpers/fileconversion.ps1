@@ -132,14 +132,14 @@ function Get-EmbeddedFilesFromHtml {
 
         try {
             [IO.File]::WriteAllBytes($filepath, [Convert]::FromBase64String($b64))
-            $results.ExternalFiles += $filename
+            $results.ExternalFiles += $filepath
             $results.Base64Images  += "data:image/$type;base64,..."
-            $results.Base64ImagesWritten += $filename
+            $results.Base64ImagesWritten += $filepath
 
             return "<img$($match.Groups[1].Value)src='$filename'"
         } catch {
             Write-Warning "Failed to decode embedded image: $($_.Exception.Message)"
-            return "<img$($match.Groups[1].Value)src=''"
+            return "<img$($match.Groups[1].Value)src='$filename'"
         }
     })
     $skipExts = @(

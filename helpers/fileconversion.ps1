@@ -132,9 +132,9 @@ function Get-EmbeddedFilesFromHtml {
 
         try {
             [IO.File]::WriteAllBytes($filepath, [Convert]::FromBase64String($b64))
-            $results.ExternalFiles += $(join-path $baseDir $filename)
+            $results.ExternalFiles += $filepath
             $results.Base64Images  += "data:image/$type;base64,..."
-            $results.Base64ImagesWritten += $(join-path $baseDir $filename)
+            $results.Base64ImagesWritten += $filepath
 
             return "<img$($match.Groups[1].Value)src='$filename'"
         } catch {

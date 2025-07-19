@@ -129,6 +129,7 @@ foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
         }
     }
 }
+
 Set-IncrementedState -newState "Complete"
 Read-Host "Press Enter to Finish and Print Summary (available in )"
 $SummaryJson = $RunSummary | ConvertTo-Json -Depth 20

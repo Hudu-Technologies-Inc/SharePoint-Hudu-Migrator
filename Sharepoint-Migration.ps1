@@ -68,11 +68,16 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 ##
 #
 Set-IncrementedState -newState "Download From Selection"
+if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
+    . .\jobs\Get-SourceLists.ps1
+}
+$DiscoveredLists | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath)"
+Read-Host
+
 . .\jobs\Get-SourceData.ps1
 Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
 $AllDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
 $AllDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
-$DiscoveredLists | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath)"
 
 
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files

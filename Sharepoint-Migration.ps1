@@ -42,13 +42,14 @@ Set-PrintAndLog -message "Checked Hudu Version... $(Get-HuduVersionCompatible)" 
 $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
 $clientId = $clientId ?? $registration.clientId
 $tenantId = $tenantId ?? $registration.tenantId
+$tokenResult = $tokenResult ?? $null
 clear-host
 
 # 1.4 Authenticate to Sharepoint
 if ($tokenResult -eq $null) {
     Start-Process "https://microsoft.com/devicelogin"
     $tokenResult = Get-MsalToken -ClientId $clientId -TenantId $tenantId -DeviceCode -Scopes $scopes
-    $accessToken = $accessToken ?? $tokenResult.AccessToken
+    $accessToken = $tokenResult.AccessToken
 }
 $SharePointHeaders = @{ Authorization = "Bearer $accessToken" }
 
@@ -70,9 +71,7 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 ##
 #
 Set-IncrementedState -newState "Download From Selection"
-if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
-    . .\jobs\Get-SourceLists.ps1
-}
+if ($true -eq $RunSummary.SetupInfo.includeSPLists) {. .\jobs\Get-SourceLists.ps1}
 $DiscoveredLists | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath)"
 Read-Host
 

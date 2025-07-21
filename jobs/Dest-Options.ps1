@@ -60,10 +60,10 @@ if ([int]$RunSummary.JobInfo.MigrationDest.Identifier -eq 0) {
 
 $RunSummary.SetupInfo.LinkSourceArticles =[bool]($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to include links to original SharePoint Documents in Hudu Articles") -eq "yes")
 $RunSummary.SetupInfo.SourceFilesAsAttachments =[bool]($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to include a copy of original Sharepoint Document as Attachments to Hudu Articles") -eq "yes")
-if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to Convert Excel Workbooks / Spreadsheets to Hudu Articles") -eq "no") {
+if ($(Select-ObjectFromList -allowNull $false -objects @("yes","no") -message "Would you like to Convert Excel Workbooks / Spreadsheets to Hudu Articles") -eq "no") {
     $RunSummary.SetupInfo.DisallowedForConvert.AddRange(@("xlsx","xls","ods","xlsm"))
 }
-if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to Convert Powerpoints / Presentations to Hudu Articles") -eq "no"){
+if ($(Select-ObjectFromList -allowNull $false -objects @("yes","no") -message "Would you like to Convert Powerpoints / Presentations to Hudu Articles") -eq "no"){
     $RunSummary.SetupInfo.DisallowedForConvert.AddRange(@("pptx","ppt","odp","pptm"))
 }
 

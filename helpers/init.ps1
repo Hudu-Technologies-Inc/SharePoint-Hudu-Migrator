@@ -54,6 +54,7 @@ $RunSummary=@{
         SelectedFolders  =   "$(join-path $logsFolder -ChildPath "folders.json")"
         ConvertedFiles   =   "$(join-path $logsFolder -ChildPath "converted.json")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
+        ListsPath        =   "$(join-path $logsFolder -ChildPath "lists.json")"
     }
     SetupInfo=@{
         HuduDestination     = $HuduBaseUrl
@@ -62,6 +63,7 @@ $RunSummary=@{
         HuduVersion         = [version]$HuduAppInfo.version
         PowershellVersion   = [version]$PowershellVersion
         project_workdir     = $project_workdir
+        includeSPLists      = $true
         StartedAt           = $(get-date)
         FinishedAt          = $null
         RunDuration         = $null

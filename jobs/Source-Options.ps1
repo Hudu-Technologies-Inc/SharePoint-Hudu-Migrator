@@ -34,3 +34,7 @@ if ($RunSummary.JobInfo.MigrationSource.Identifier -eq 0) {
     if ($userSelectedSites.count -lt 1){
         Write-Error "No Sites Selected. Please try again." -ForegroundColor Red
 }
+
+
+$RunSummary.SetupInfo.includeSPLists= [bool]($(Select-ObjectFromList -allowNull $false -objects @("yes","no") -message "Would you like to transfer Sharepoint Lists if there are any?") -eq "yes")
+

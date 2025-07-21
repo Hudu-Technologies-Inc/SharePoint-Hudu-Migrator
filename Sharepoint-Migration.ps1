@@ -18,6 +18,7 @@ $userSelectedSites = [System.Collections.ArrayList]@()
 $AllDiscoveredFiles = [System.Collections.ArrayList]@()
 $AllDiscoveredFolders = [System.Collections.ArrayList]@()
 $Attribution_Options=[System.Collections.ArrayList]@()
+$DiscoveredLists = [System.Collections.ArrayList]@()
 $AllNewLinks = [System.Collections.ArrayList]@()        
 $discoveredFiles = [System.Collections.ArrayList]@()
 $ImageMap = @{}
@@ -71,6 +72,8 @@ Set-IncrementedState -newState "Download From Selection"
 Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
 $AllDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
 $AllDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
+$DiscoveredLists | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath)"
+
 
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##

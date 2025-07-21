@@ -64,6 +64,7 @@ $RunSummary=@{
         PowershellVersion   = [version]$PowershellVersion
         project_workdir     = $project_workdir
         includeSPLists      = $true
+        SPListsAsLayouts    = $true
         StartedAt           = $(get-date)
         FinishedAt          = $null
         RunDuration         = $null

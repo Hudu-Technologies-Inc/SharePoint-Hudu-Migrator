@@ -36,5 +36,9 @@ if ($RunSummary.JobInfo.MigrationSource.Identifier -eq 0) {
 }
 
 
-$RunSummary.SetupInfo.includeSPLists= [bool]($(Select-ObjectFromList -allowNull $false -objects @("yes","no") -message "Would you like to transfer Sharepoint Lists if there are any?") -eq "yes")
+$RunSummary.SetupInfo.includeSPLists   = [bool]($(Select-ObjectFromList -allowNull $false -objects @("yes","no") -message "Would you like to transfer Sharepoint Lists if there are any?") -eq "yes")
+if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
+    $RunSummary.SetupInfo.SPListsAsLayouts = [bool]($(Select-ObjectFromList -allowNull $false -objects @("yes","no") -message "Would you like to transfer Sharepoint Lists to Hudu Asset Layouts (more data-rich) or as checklists (simple checklists)") -eq "yes")
+}
+
 

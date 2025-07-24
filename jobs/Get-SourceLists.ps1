@@ -40,3 +40,27 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
         }
     } 
 }
+
+foreach ($list in $DiscoveredLists) {
+    $layoutName="$($list.SiteName)-$($list.ListName)"
+    write-host "searching for or creating $layoutName"
+    $AssetLayout=$($(Get-HuduAssetLayouts -name "$layoutName") ?? $(New-HuduAssetLayout -name "$layoutName")).assetlayout
+    $layoutFields = @()
+    foreach ($field in $list.Fields){
+        $layoutFields+=@{
+        label= "string"
+        show_in_list= $true
+        field_type= "string"
+        required= $true
+        hint= "string"
+        min= 0
+        max= 0
+        linkable_id= 0
+        expiration= $true
+        options= ""
+        position=
+      }
+    }
+
+
+}

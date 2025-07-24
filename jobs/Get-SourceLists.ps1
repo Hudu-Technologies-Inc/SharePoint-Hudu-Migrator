@@ -23,6 +23,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                             Type=$fieldType 
                             Default=$defaultValue
                             HuduFieldType=Get-SPListItemTypeToHuduALType -SPListItemType $fieldType -FieldName $fieldName -SampleItems $items.value
+                            SampleData = $items.value
                         }
                     }
 
@@ -30,7 +31,6 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                         ListName   = $siteList.displayName
                         SiteName   = $site.name
                         Fields     = $fieldsSummary
-                        SampleData = ($items.value | Select-Object -First 1).fields
                     }
 
                 } catch {

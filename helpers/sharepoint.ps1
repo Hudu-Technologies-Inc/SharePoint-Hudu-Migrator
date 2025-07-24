@@ -1,3 +1,14 @@
+function Get-SPColumnType {
+    param ([pscustomobject]$col)
+
+    foreach ($type in 'text','note','number','choice','multichoice','boolean','dateTime','currency','url','lookup','user','calculated','taxonomy') {
+        if ($col.PSObject.Properties.Name -contains $type -and $col.$type) {
+            return $type
+        }
+    }
+
+    return 'text'  # Default fallback
+}
 function Get-SPListItemTypeToHuduALType {
 param (
     [string]$SPListItemType,

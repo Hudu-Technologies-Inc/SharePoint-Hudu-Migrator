@@ -17,12 +17,12 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
 
                     foreach ($col in $columns.value) {
                         $fieldName = $col.displayName
-                        $fieldType = $col.type
+                        $fieldType = Get-SPColumnType $col
                         $defaultValue = $col.defaultValue ?? "null"
                         $fieldsSummary[$fieldName] = @{
                             Type=$fieldType 
                             Default=$defaultValue
-                            HuduFieldType = Get-SPListItemTypeToHuduALType -SPListItemType $fieldType -FieldName $fieldName -SampleItems $items.value
+                            HuduFieldType=Get-SPListItemTypeToHuduALType -SPListItemType $fieldType -FieldName $fieldName -SampleItems $items.value
                         }
                     }
 

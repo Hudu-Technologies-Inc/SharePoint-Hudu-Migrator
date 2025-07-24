@@ -9,6 +9,33 @@ function Get-SPColumnType {
 
     return 'text'  # Default fallback
 }
+
+function Get-SPColumnChoices {
+    param ([pscustomobject]$col)
+
+    $fieldType = Get-SPColumnType $col
+    if ($fieldType -eq 'choice' -or $fieldType -eq 'multichoice') {
+        $options = $col.$fieldType.choices
+        Write-Host "Field '$($col.displayName)' has options:"
+        foreach ($opt in $options) {
+            Write-Host "  - $opt"
+        }
+        $fieldsSummary[$col.displayName]['Choices'] = $options
+    }
+}
+
+function Get-SPColumnNullable {
+    param ([pscustomobject]$col)
+
+    foreach ($type in 'text','note','number','choice','multichoice','boolean','dateTime','currency','url','lookup','user','calculated','taxonomy') {
+        if ($col.PSObject.Properties.Name -contains $type -and $col.$type) {
+            return $type
+        }
+    }
+
+    return 'text'  # Default fallback
+}
+
 function Get-SPListItemTypeToHuduALType {
 param (
     [string]$SPListItemType,
@@ -22,8 +49,8 @@ param (
         "currency"     = "text"
         "boolean"      = "checkbox"
         "datetime"     = "date"
-        "choice"       = "dropdown"
-        "multichoice"  = "checkboxes"
+        "choice"       = "listselect"
+        "multichoice"  = "listselect"
         "user"         = "text"
         "lookup"       = "text"
         "url"          = "link"

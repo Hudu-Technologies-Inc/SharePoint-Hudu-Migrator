@@ -1,4 +1,27 @@
 
+function Test-IsIntegerField {
+    param (
+        [object[]]$sampleValues
+    )
+    foreach ($value in $sampleValues) {
+        if ($value.decimalPlaces -ne 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-IsImageField {
+    param (
+        [object[]]$sampleValues
+    )
+    foreach ($value in $sampleValues) {
+        if (-not $value.ToLower() -match '\.(jpg|jpeg|png)$'){
+            return $false
+        }
+    }
+    return $true
+}
 
 function Export-DocPropertyJson {
     param (

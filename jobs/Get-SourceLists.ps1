@@ -22,6 +22,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                         $fieldsSummary[$fieldName] = @{
                             Type=$fieldType 
                             Default=$defaultValue
+                            HuduFieldType = Get-SPListItemTypeToHuduALType -SPListItemType $fieldType -FieldName $fieldName -SampleItems $items.value
                         }
                     }
 
@@ -37,5 +38,5 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                 }
             }
         }
-    }
+    } 
 }

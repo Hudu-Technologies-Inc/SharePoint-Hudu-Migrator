@@ -1,3 +1,44 @@
+function Get-SPListItemTypeToHuduALType {
+param (
+    [string]$SPListItemType,
+    [string]$FieldName,
+    [array]$SampleValues
+)
+    $SharePointToHuduMap = @{
+        "text"         = "text"
+        "note"         = "richtext"
+        "number"       = "number"
+        "currency"     = "text"
+        "boolean"      = "checkbox"
+        "datetime"     = "date"
+        "choice"       = "dropdown"
+        "multichoice"  = "checkboxes"
+        "user"         = "text"
+        "lookup"       = "text"
+        "url"          = "link"
+        "picture"      = "image"
+        "calculated"   = "text"
+        "attachments"  = "upload"
+        "taxonomy"     = "text"
+    }
+    $HuduAssetLayoutFieldType = $SharePointToHuduMap["$($SPListItemType.Trim().ToLowerInvariant())"]
+
+    # Sample just the values of this field across items
+    $fieldValues = $SampleItems | ForEach-Object { $_.fields.$FieldName }
+
+    if ($HuduAssetLayoutFieldType -eq "image") {
+        return if (Test-IsImageField $fieldValues) { "image" } else { "upload" }
+    }
+
+    if ($HuduAssetLayoutFieldType -eq "number") {
+        return if (Test-IsIntegerField $fieldValues) { "number" } else { "text" }
+    }
+
+    return $HuduAssetLayoutFieldType
+}
+
+
+
 function Download-GraphDriveItemsRecursively {
     param (
         [string]$siteId,

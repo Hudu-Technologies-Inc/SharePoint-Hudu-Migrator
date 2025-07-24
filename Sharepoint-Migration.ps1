@@ -71,7 +71,7 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 ##
 #
 Set-IncrementedState -newState "Download From Selection"
-if ($true -eq $RunSummary.SetupInfo.includeSPLists) {. .\jobs\Get-SourceLists.ps1}
+. .\jobs\Get-SourceLists.ps1
 $DiscoveredLists | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath)"
 Read-Host
 

@@ -18,6 +18,8 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
         }
         $validSiteListCount = $sitelists.Count
         set-Printandlog -message "Validated Sitelists from $originalSitelistcount -> $validSiteListCount"
+        $sitelists | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "sitelist_$($_.value.Name).json")}
+
         if ($null -ne $sitelists -and $sitelists.value.Count -gt 0) {
             foreach ($siteList in $sitelists.value) {
                 try {
@@ -26,10 +28,12 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     # Fetch list schema (columns) – to map field types
                     $columnsUri = "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists/$($siteList.id)/columns"
                     $columns = Invoke-RestMethod -Headers $SharePointHeaders -Uri $columnsUri -Method GET
+                    $columns | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "sitelist_columns_$($siteList.Name).json")}
 
                     # Fetch list items
                     $itemsUri = "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists/$($siteList.id)/items?expand=fields"
                     $items = Invoke-RestMethod -Headers $SharePointHeaders -Uri $itemsUri -Method GET
+                    $columns | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "sitelist_items_$($siteList.Name).json")}
 
                     $ValidColumns=@()
                     foreach ($col in $columns.value) {
@@ -44,8 +48,8 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                         set-Printandlog -message "Valid column $($col.displayName)"
                         $ValidColumns += $col
                     }
-                    if ($ValidColumns.Count -lt 1){
-                        set-Printandlog -message "Skipping list with not enough valid columns- site: $($site.Name) list: $($siteList.Name)"
+                    if (-not $ValidColumns -or $ValidColumns.Count -lt 1) {
+                        set-Printandlog -message "Skipping list with not enough valid columns - site: $($site.Name) list: $($siteList.displayName)"
                         continue
                     }
 

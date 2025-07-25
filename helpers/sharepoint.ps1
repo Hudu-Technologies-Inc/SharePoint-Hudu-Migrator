@@ -43,33 +43,28 @@ param (
     [array]$SampleValues
 )
     $SharePointToHuduMap = @{
-        "text"         = "text"
-        "note"         = "richtext"
-        "number"       = "number"
-        "currency"     = "text"
-        "boolean"      = "checkbox"
-        "datetime"     = "date"
-        "choice"       = "listselect"
-        "multichoice"  = "listselect"
-        "user"         = "text"
-        "lookup"       = "text"
-        "url"          = "link"
-        "picture"      = "image"
-        "calculated"   = "text"
-        "attachments"  = "upload"
-        "taxonomy"     = "text"
+        "text"         = "Text"
+        "note"         = "RichText"
+        "number"       = "Number"
+        "currency"     = "Text"
+        "boolean"      = "CheckBox"
+        "datetime"     = "Date"
+        "choice"       = "ListSelect"
+        "multichoice"  = "ListSelect"
+        "user"         = "Text"
+        "lookup"       = "RichText"
+        "url"          = "Website"
+        "picture"      = "RichText"
+        "calculated"   = "Text"
+        "attachments"  = "RichText"
+        "taxonomy"     = "RichText"
     }
     $HuduAssetLayoutFieldType = $SharePointToHuduMap["$($SPListItemType.Trim().ToLowerInvariant())"]
 
-    # Sample just the values of this field across items
     $fieldValues = $SampleItems | ForEach-Object { $_.fields.$FieldName }
 
-    if ($HuduAssetLayoutFieldType -eq "image") {
-        return if (Test-IsImageField $fieldValues) { "image" } else { "upload" }
-    }
-
-    if ($HuduAssetLayoutFieldType -eq "number") {
-        return if (Test-IsIntegerField $fieldValues) { "number" } else { "text" }
+    if ($HuduAssetLayoutFieldType -eq "Number") {
+        return if (Test-IsIntegerField $fieldValues) { "Number" } else { "Text" }
     }
 
     return $HuduAssetLayoutFieldType

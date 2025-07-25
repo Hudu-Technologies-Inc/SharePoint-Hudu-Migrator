@@ -20,21 +20,12 @@ function Get-SPColumnChoices {
         foreach ($opt in $options) {
             Write-Host "  - $opt"
         }
-        $fieldsSummary[$col.displayName]['Choices'] = $options
-    }
-}
-
-function Get-SPColumnNullable {
-    param ([pscustomobject]$col)
-
-    foreach ($type in 'text','note','number','choice','multichoice','boolean','dateTime','currency','url','lookup','user','calculated','taxonomy') {
-        if ($col.PSObject.Properties.Name -contains $type -and $col.$type) {
-            return $type
-        }
+        return $options
     }
 
-    return 'text'  # Default fallback
+    return @()  # Return empty array if not a choice field
 }
+
 
 function Get-SPListItemTypeToHuduALType {
 param (
@@ -64,9 +55,12 @@ param (
     $fieldValues = $SampleItems | ForEach-Object { $_.fields.$FieldName }
 
     if ($HuduAssetLayoutFieldType -eq "Number") {
-        return if (Test-IsIntegerField $fieldValues) { "Number" } else { "Text" }
+        if (Test-IsIntegerField $fieldValues) {
+            return "Number"
+        } else {
+            return "Text"
+        }
     }
-
     return $HuduAssetLayoutFieldType
 }
 

@@ -29,8 +29,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             }
 
         )   
-    
-        $AssetLayout = Get-HuduAssetLayouts -name "$layoutName"
+    $AssetLayout = Get-HuduAssetLayouts -name "$layoutName"
 
         if (-not $AssetLayout) {
             Set-PrintAndLog -message "Creating layout $layoutName with icon $layoutIcon, background $layoutBackgroundColor, icon color $layoutColor and tempfields $($TempLayoutFields | ConvertTo-Json)"

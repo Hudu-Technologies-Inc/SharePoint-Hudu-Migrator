@@ -53,7 +53,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             }
         } else {$null}
         if ($relationsToResolve){
-            $relationsToResolve | Add-Member -NotePropertyName relationsToResolve -NotePropertyValue @($relationsToResolve) -Force
+            $AssetLayout | Add-Member -NotePropertyName relationsToResolve -NotePropertyValue @($relationsToResolve) -Force
         }
 
     }

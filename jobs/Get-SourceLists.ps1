@@ -8,14 +8,18 @@ $SkippableInternalColumns=@(
     "Item is a Record","App Modified By","App Created By"
 
 )
+$BlockedSPInternalLists = @(
+  "AppPages", "Channel Settings", "ContentTypeAppLog", "ContentTypeSyncLog",
+  "CSPViolationReportList", "EnterpriseContentTypesUsage", "Hub Settings",
+  "PackageList", "PackagesMetaInfoList", "Shared Documents", "pImg", "pPg", "pSet", "pSiteList", "pVid"
+)
+
 
 if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
     foreach ($site in $userSelectedSites) {
         $sitelists = Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists" -Method GET
         $originalSitelistcount = $sitelists.Count
-        $sitelists = $sitelists | Where-Object {
-            $_.displayName -notmatch '^App|Site Assets|Form Templates|Shared Documents|Documents|Style Library|PortalSiteList|Hub Settings|CSPViolationReportList|Content and Structure Reports'
-        }
+        $sitelists = $sitelists | Where-Object { $_.displayName -notin $BlockedSPInternalLists }
         $validSiteListCount = $sitelists.Count
         set-Printandlog -message "Validated Sitelists from $originalSitelistcount -> $validSiteListCount"
 
@@ -47,6 +51,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     }
                     if (-not $ValidColumns -or $ValidColumns.Count -lt 1) {
                         set-Printandlog -message "Skipping list with not enough valid columns - site: $($site.Name) list: $($siteList.displayName)"
+                        $sitelist | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "nocols_$($siteList.Name).json")
                         continue
                     }
 
@@ -79,12 +84,14 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                             MultipleChoice  = [bool]$($fieldType -eq 'multichoice')
                         }
                     }
-                $ValidColumns | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "list_columns_$($siteList.Name).json")
 
                 if (-not $items.value -or $items.value.Count -lt 1) {
                     set-Printandlog -message "Skipping list with no values from site $($site.name) list $($siteList.displayName)"
+                    $sitelist | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "noitems_$($siteList.Name).json")
                     continue
                 }
+                $ValidColumns | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "list_columns_$($siteList.Name).json")
+
                 Set-PrintAndLog -Message "List: $($siteList.displayName), Total Columns: $($columns.value.Count), Valid: $($ValidColumns.Count)"
 
                 $DiscoveredLists += [PSCustomObject]@{

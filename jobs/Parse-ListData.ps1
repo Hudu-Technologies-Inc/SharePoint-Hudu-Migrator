@@ -79,7 +79,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         }
         $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
 
-        $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -name $AssetLayout.Name -fields @($layoutFields)
+        $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)
         $AssetLayout = $LayoutObject.assetlayout
 
         # $relationsToResolve=if ($list.LinkedFiles.Count -gt 0){

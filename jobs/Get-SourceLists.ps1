@@ -1,7 +1,7 @@
 $linkedFilesAndFolders=@()
 
 $SkippableInternalColumns=@(
-    "Folder Child Count","Item Child Count","Comment count","Sensitivity","File Size",
+    "Folder Child Count","Item Child Count","Comment count",
     "Check In Comment","Retention label","Compliance Asset Id","Label applied by",
     "Like count","Source Version (Converted Document)","Source Version","Modified By",
     "Label setting","Source Name (Converted Document)","Source Name","Copy Source",
@@ -12,9 +12,12 @@ $SkippableInternalColumns=@(
 if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
     foreach ($site in $userSelectedSites) {
         $sitelists = Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists" -Method GET
+        $originalSitelistcount = $sitelists.Count
         $sitelists = $sitelists | Where-Object {
-        $_.displayName -notmatch '^App|Site Assets|Form Templates|Shared Documents|Style Library|Content and Structure Reports'
+            $_.displayName -notmatch '^App|Site Assets|Form Templates|Shared Documents|Style Library|Content and Structure Reports'
         }
+        $validSiteListCount = $sitelists.Count
+        set-Printandlog -message "Validated Sitelists from $originalSitelistcount -> $validSiteListCount"
         if ($null -ne $sitelists -and $sitelists.value.Count -gt 0) {
             foreach ($siteList in $sitelists.value) {
                 try {
@@ -31,14 +34,14 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     $ValidColumns=@()
                     foreach ($col in $columns.value) {
                         if ($SkippableInternalColumns -contains $col.displayName) {
-                            Write-Host "Skipping internal-only column $($col.displayName)"
+                            set-Printandlog -message "Skipping internal-only column $($col.displayName)"
                             continue
                         }
                         if ($col.readOnly -eq $true -or $col.hidden -eq $true) {
-                            Write-Host "Skipping hidden or read-only column $($col.displayName)"
+                            set-Printandlog -message "Skipping hidden or read-only column $($col.displayName)"
                             continue
                         }
-                        Write-Host "Valid column $($col.displayName)"
+                        set-Printandlog -message "Valid column $($col.displayName)"
                         $ValidColumns += $col
                     }
                     if ($ValidColumns.Count -lt 1){
@@ -46,7 +49,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                         continue
                     }
 
-                    set-Printandlog -message "Validated Columns for site: $($site.Name) list: $($siteList.Name): $($columns.value.count) -> $($validatedColumns.value.count)"
+                    set-Printandlog -message "Validated Columns for site: $($site.Name) list: $($siteList.Name): $($columns.value.count) -> $($validatedColumns.count)"
 
                     # Build a simplified list entry
                     $fieldsSummary = @{}

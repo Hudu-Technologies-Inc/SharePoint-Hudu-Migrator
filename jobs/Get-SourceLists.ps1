@@ -49,6 +49,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     Fields          = $fieldsSummary
                     Values          = @($items.value)
                     LinkedFiles     = $linkedFiles
+                    itemsUri        = $itemsUri
                 }
 
                 } catch {

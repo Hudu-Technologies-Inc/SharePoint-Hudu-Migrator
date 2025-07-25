@@ -38,7 +38,27 @@ foreach ($icon in $FontAwesomeIcons) {
     $shortName = $icon -replace '^fas fa-', ''
     $FontAwesomeIconMap[$shortName] = $icon
 }
+function Get-ComplimentingBackgroundColor {
+    param (
+        [Parameter(Mandatory)]
+        [string]$HexColor
+    )
 
+    # Normalize and extract RGB components
+    $hex = $HexColor.TrimStart('#')
+    $r = [Convert]::ToInt32($hex.Substring(0, 2), 16)
+    $g = [Convert]::ToInt32($hex.Substring(2, 2), 16)
+    $b = [Convert]::ToInt32($hex.Substring(4, 2), 16)
+
+    # Calculate relative luminance using W3C formula
+    $luminance = (0.299 * $r) + (0.587 * $g) + (0.114 * $b)
+
+    if ($luminance -gt 186) {
+        return "#000000"
+    } else {
+        return "#FFFFFF"
+    }
+}
 
 function Test-IsIntegerField {
     param (

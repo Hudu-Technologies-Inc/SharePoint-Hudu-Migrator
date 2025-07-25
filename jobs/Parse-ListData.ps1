@@ -3,26 +3,25 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
     foreach ($list in $DiscoveredLists) {
         $layoutName="$($list.SiteName)-$($list.ListName)"
         Set-PrintAndLog -message  "searching for or creating asset layout- $layoutName"
-        $layoutIcon = $FontAwesomeIconMap[$(Select-ObjectFromList -allowNull $false -objects $FontAwesomeIconMap.Keys -message "Which Icon for layout $layoutName?")]
-        $layoutcolor = $HexColorMap[$(Select-ObjectFromList -allowNull $false -objects $HexColorMap.Keys -message "Choose a color for $layoutName with icon $layoutIcon")]
-        $AssetLayout=$($(Get-HuduAssetLayouts -name "$layoutName") ?? $(New-HuduAssetLayout -name "$layoutName" -Icon $layoutIcon -IconColor $layoutcolor)).assetlayout
+        $layoutIcon = $FontAwesomeIconMap[$(Select-ObjectFromList -allowNull $false -objects @($FontAwesomeIconMap.Keys) -message "Which Icon for layout $layoutName?")]
+        $layoutcolor = $HexColorMap[$(Select-ObjectFromList -allowNull $false -objects @($HexColorMap.Keys) -message "Choose a color for $layoutName with icon $layoutIcon")]
+        $layoutBackgroundColor = Get-ComplimentingBackgroundColor -HexColor $layoutcolor
+        $TempLayoutFields = @(@{label        = 'Imported from SharePoint'
+                                field_type   = 'Date'
+                                show_in_list = 'false'
+                                position     = 501},
+                                                @{
+                                label        = 'ITGlue URL'
+                                field_type   = 'Text'
+                                show_in_list = 'false'
+                                position     = 502})        
+    
+        $AssetLayout=$($(Get-HuduAssetLayouts -name "$layoutName") ?? $(New-HuduAssetLayout -name "$layoutName" -icon $layoutIcon -color $layoutBackgroundColor -icon_color $layoutcolor  -include_passwords $true -include_photos $true -include_comments $true -include_files $true -fields @($TempLayoutFields) )).assetlayout
         Set-PrintAndLog -message  "Layout Id $($AssetLayout.id) with $($list.Fields.Count) Fields and $($list.Values.Count) Values and $($list.LinkedFiles.Count) linked files..."
         $layoutFields = @()
         $PosIDX=500
-        $includeFiles=[bool]$($list.LinkedFiles.Count -gt 0)
-        $includeComments=$true
-        $includePasswords=$false
-        $includePhotos=$false
         foreach ($field in $list.Fields){
             Set-PrintAndLog -message  "Processing $(if ($field.Nullable) {'Nullable'} else {'Mandatory'}) $($field.Type) Field, $($field.Name), for $layoutName from site/list $($list.SiteName)/$($list.ListName)"
-            if ($field.HuduFieldType -eq "image"){
-                Set-PrintAndLog -message  "Genuine photo field $($field.Name) found for $layoutName, AL can include photos"
-                $includePhotos = $true
-            }
-            if ($field.Type -eq "user"){
-                Set-PrintAndLog -message  "User field $($field.Name) found for $layoutName, assuming AL can be passworded"
-                $includePasswords = $true
-            }
             $NewField= @{
                 field_type   = $field.Type
                 label        = $field.Name
@@ -41,9 +40,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             $layoutFields += $NewField
             $PosIDX=$PosIDX-1
         }
-        $AssetLayout = $(Set-HuduAssetLayout -id $AssetLayout.Id -name $AssetLayout.Name 
-                     -include_passwords $includePasswords -include_photos $includePhotos -include_comments $includeComments -include_files $includeFiles
-                     -fields @($layoutFields)).assetlayout
+        $AssetLayout = $(Set-HuduAssetLayout -id $AssetLayout.Id -name $AssetLayout.Name -fields $layoutFields).assetlayout 
         $relationsToResolve=if ($list.LinkedFiles.Count -gt 0){
             $PosIDX=$PosIDX-1
             $layoutFields += @{

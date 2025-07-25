@@ -73,7 +73,7 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 Set-IncrementedState -newState "Download From Selection"
 . .\jobs\Get-SourceLists.ps1
 $DiscoveredLists | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath).$($_.sitename)-$($_.listName)"}
-
+$DiscoveredLists |  ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.ListsPath)"
 . .\jobs\Parse-ListData.ps1
 
 Read-Host

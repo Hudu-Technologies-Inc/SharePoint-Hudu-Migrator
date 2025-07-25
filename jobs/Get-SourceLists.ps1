@@ -14,7 +14,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
         $sitelists = Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists" -Method GET
         $originalSitelistcount = $sitelists.Count
         $sitelists = $sitelists | Where-Object {
-            $_.displayName -notmatch '^App|Site Assets|Form Templates|Shared Documents|Style Library|Content and Structure Reports'
+            $_.displayName -notmatch '^App|Site Assets|Form Templates|Shared Documents|Documents|Style Library|PortalSiteList|Hub Settings|CSPViolationReportList|Content and Structure Reports'
         }
         $validSiteListCount = $sitelists.Count
         set-Printandlog -message "Validated Sitelists from $originalSitelistcount -> $validSiteListCount"

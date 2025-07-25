@@ -8,28 +8,8 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         $selectedColorName = Select-ObjectFromList -allowNull $false -objects $colorOptions -message "Choose a color for $layoutName with icon $layoutIcon"
         $layoutColor = $HexColorMap[$selectedColorName]
         $layoutBackgroundColor = Get-ComplimentingBackgroundColor -HexColor $layoutcolor
-        $TempLayoutFields = @(
-            @{
-                label        = 'Imported from SharePoint'
-                field_type   = 'Text'
-                show_in_list = 'false'
-                position     = 500
-            },
-            @{
-                label        = 'SharePoint URL'
-                field_type   = 'Text'
-                show_in_list = 'false'
-                position     = 501
-            },
-            @{
-                label        = 'Sharepoint ID'
-                field_type   = 'Text'
-                show_in_list = 'false'
-                position     = 502
-            }
-
-        )   
-    $AssetLayout = Get-HuduAssetLayouts -name "$layoutName"
+        $TempLayoutFields = $BaseSPLayoutFields
+        $AssetLayout = Get-HuduAssetLayouts -name "$layoutName"
 
         if (-not $AssetLayout) {
             Set-PrintAndLog -message "Creating layout $layoutName with icon $layoutIcon, background $layoutBackgroundColor, icon color $layoutColor and tempfields $($TempLayoutFields | ConvertTo-Json)"
@@ -64,50 +44,36 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 hint         = "original default - $($field.Default)"
                 position     = $PosIDX
             }
-          if ($field.HuduFieldType -eq "ListSelect") {
+            if ($field.HuduFieldType -eq "ListSelect") {
                 Set-PrintAndLog -message "Found $($field.Choices.Count) choices in '$($field.Name)'; Searching for or creating list for ListSelect Field"
                 $ListName = "$($layoutName)-$($field.Name)"
                 $huduList = Get-HuduList -Name $ListName
-                if (-not $huduList) {
+                if (-not $huduList -and $field.Options) {
                     New-HuduList -name $ListName -Items $field.Options
                     $huduList = Get-HuduList -Name $ListName
                 }
-                $list_id = $huduList.id
-
-                $newField += @{
-                    multiple_options          = $field.MultipleChoice
-                    list_id                   = $list_id
-                }
-
-
+                $newField.list_id = $huduList.id
+                $newField.multiple_options = $field.MultipleChoice
             }
-
-            if ($field.HuduFieldType -eq "Dropdown" -or $field.HuduFieldType -eq "ListSelect") {
-                Set-PrintAndLog -message "Found $($field.Choices.Count) choices in '$($field.Name)'"
-
-            }
-
-            $layoutFields += $newField
-            $PosIDX -= 1
         }
-        $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
-
-        $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)
-        $AssetLayout = $LayoutObject.assetlayout
-
-        # $relationsToResolve=if ($list.LinkedFiles.Count -gt 0){
-        #     $PosIDX=$PosIDX-1
-        #     $layoutFields += @{
-        #         field_type   = "AssetTag"
-        #         label        = $field.Name
-        #         linkable_id  = "REPLACEME"
-        #         linked_files = $list.LinkedFiles
-        #         Position     = $PosIDX
-        #     }
-        # } else {$null}
-        # if ($relationsToResolve){
-        #     $AssetLayout | Add-Member -NotePropertyName relationsToResolve -NotePropertyValue @($relationsToResolve) -Force
-        # }
-
+        $layoutFields += $newField
+        $PosIDX -= 1
     }
+    $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
+    $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)
+    $AssetLayout = $LayoutObject.assetlayout
+    $LayoutsCreated+=$AssetLayout
+
+
+    if ($list.LinkedFiles.Count -gt 0){
+        $RelationsToResolve += @{
+            field_type   = "AssetTag"
+            label        = $field.Name
+            linked_files = $list.LinkedFiles
+        }
+    }
+} else {
+    Set-PrintAndLog -message "Processing Lists as Procedures" -Color Yellow
+
 }
+

@@ -24,6 +24,51 @@ $tmpfolder=$(join-path "$workdir" "tmp")
 $ErroredItemsFolder=$(join-path "$logsFolder" "errored")
 Write-Host "Hudu Max Docsize: $HUDU_MAX_DOCSIZE"
 
+# Migration-related vars
+# all SP sites for user to choose to migrate from 
+$allSites = @()
+
+# All Files and Folders discovered on all sites 'documents' section
+$AllDiscoveredFiles = [System.Collections.ArrayList]@()
+$AllDiscoveredFolders = [System.Collections.ArrayList]@()
+
+# company ID, Global KB or use-selector when creating asset layouts, procedures, articles
+$Attribution_Options=[System.Collections.ArrayList]@()
+
+# Sites that user selected from all available
+$userSelectedSites = [System.Collections.ArrayList]@()
+
+# Sharepoint Lists that we found in user-selected sites
+$DiscoveredLists = [System.Collections.ArrayList]@()
+
+# flattened list of files/folders we found in lists that were in user-selected Sites
+$discoveredFiles = [System.Collections.ArrayList]@()
+
+# Links to objects in Hudu that we created
+$AllNewLinks = [System.Collections.ArrayList]@()
+
+# Map of images/uploads filename before/after for relinking
+$ImageMap = @{}
+
+# asset layouts we created from parsed sharepoint lists found on user-selected sites
+$LayoutsCreated = @()
+
+# procedures we created from parsed sharepoint lists found on user-selected sites
+$ProceduresCreated = @()
+
+# Article/Upload/Photo -> Asset (SP list-entry) relations to resolve after article-stubbing and uploads processing
+$RelationsToResolve = @()
+
+# all companies in hudu to migrate lists and documents to
+$AllCompanies = @()
+
+# single company as target company if chosen by user
+$SingleCompanyChoice=@{}
+
+# articles that were processed, converted, determined to be fit, given a folder, then stubbed
+$StubbedArticles=@()
+
+
 $EmbeddableImageExtensions = @(
     ".jpg", ".jpeg",  # JPEG
     ".png",           # Portable Network Graphics

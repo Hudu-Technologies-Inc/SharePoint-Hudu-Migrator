@@ -14,19 +14,6 @@ $clientId = $clientId ?? $null
 $scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 
 # 1.3 Init and vars
-$userSelectedSites = [System.Collections.ArrayList]@()
-$AllDiscoveredFiles = [System.Collections.ArrayList]@()
-$AllDiscoveredFolders = [System.Collections.ArrayList]@()
-$Attribution_Options=[System.Collections.ArrayList]@()
-$DiscoveredLists = [System.Collections.ArrayList]@()
-$AllNewLinks = [System.Collections.ArrayList]@()        
-$discoveredFiles = [System.Collections.ArrayList]@()
-$ImageMap = @{}
-$allSites = @()
-$AllCompanies = @()
-$SingleCompanyChoice=@{}
-$StubbedArticles=@()
-
 foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort-Object Name)) {
     Write-Host "Importing: $($file.Name)" -ForegroundColor DarkBlue
     . $file.FullName

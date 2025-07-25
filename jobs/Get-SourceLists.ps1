@@ -1,20 +1,3 @@
-$linkedFilesAndFolders=@()
-
-$SkippableInternalColumns=@(
-    "Folder Child Count","Item Child Count","Comment count",
-    "Check In Comment","Retention label","Compliance Asset Id","Label applied by",
-    "Like count","Source Version (Converted Document)","Source Version","Modified By",
-    "Label setting","Source Name (Converted Document)","Source Name","Copy Source",
-    "Item is a Record","App Modified By","App Created By"
-
-)
-$BlockedSPInternalLists = @(
-  "AppPages", "Channel Settings", "ContentTypeAppLog", "ContentTypeSyncLog",
-  "CSPViolationReportList", "EnterpriseContentTypesUsage", "Hub Settings", "Web Template Extensions",
-  "PackageList", "PackagesMetaInfoList", "Shared Documents", "pImg", "pPg", "pSet", "pSiteList", "pVid"
-)
-
-
 if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
     foreach ($site in $userSelectedSites) {
         $sitelists = Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists" -Method GET
@@ -52,7 +35,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                 try {
                     set-Printandlog -message "Validating Columns for Site-List $($siteList.displayName)"  -Color Blue
                     foreach ($col in $columns.value) {
-                        if ($SkippableInternalColumns -contains $col.displayName) {
+                        if ($BlockedSPInternalColumns -contains $col.displayName) {
                             set-Printandlog -message "Skipping internal-only column $($col.displayName)"
                             continue
                         }

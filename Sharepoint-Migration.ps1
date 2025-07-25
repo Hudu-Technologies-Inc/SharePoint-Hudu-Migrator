@@ -4,13 +4,13 @@ $workdir = $PSScriptRoot
 ##
 #
 # 1.1 Hudu Set-up
-$HUDU_MAX_DOCSIZE=$HUDU_MAX_DOCSIZE ?? 8500
 $HuduBaseUrl= $HuduBaseURL ?? $(read-host "enter hudu URL")
 $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 
 # 1.2 Sharepoint Set-up- Add these values here if you set up appregistration manually.
 $tenantId = $tenantId ?? $null
 $clientId = $clientId ?? $null
+
 $scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 
 # 1.3 Init and vars
@@ -140,4 +140,3 @@ $SummaryJson -split "`n" | ForEach-Object {
 }
 $SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
 Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta
-

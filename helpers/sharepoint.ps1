@@ -1,37 +1,3 @@
-# columns that are ignored in sharepoint lists
-$BlockedSPInternalColumns=@(
-    "Folder Child Count","Item Child Count","Comment count",
-    "Check In Comment","Retention label","Compliance Asset Id","Label applied by",
-    "Like count","Source Version (Converted Document)","Source Version","Modified By",
-    "Label setting","Source Name (Converted Document)","Source Name","Copy Source",
-    "Item is a Record","App Modified By","App Created By"
-)
-# lists that are ignored in sharepoint sites
-$BlockedSPInternalLists = @(
-  "AppPages", "Channel Settings", "ContentTypeAppLog", "ContentTypeSyncLog",
-  "CSPViolationReportList", "EnterpriseContentTypesUsage", "Hub Settings", "Web Template Extensions",
-  "PackageList", "PackagesMetaInfoList", "Shared Documents", "pImg", "pPg", "pSet", "pSiteList", "pVid"
-)
-# Base Asset Fields when creating asset layout from list
-$BaseSPLayoutFields = @(@{
-        label        = 'Imported from SharePoint'
-        field_type   = 'Text'
-        show_in_list = 'false'
-        position     = 500
-    },
-    @{
-        label        = 'SharePoint URL'
-        field_type   = 'Text'
-        show_in_list = 'false'
-        position     = 501
-    },
-    @{
-        label        = 'Sharepoint ID'
-        field_type   = 'Text'
-        show_in_list = 'false'
-        position     = 502})   
-
-
 function Get-SPColumnType {
     param ([pscustomobject]$col)
 

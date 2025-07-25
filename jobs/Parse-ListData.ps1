@@ -43,12 +43,12 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 -include_photos $true `
                 -include_comments $true `
                 -include_files $true `
-                -fields $TempLayoutFields
+                -fields @($TempLayoutFields)
         }
         $AssetLayout = $AssetLayout.asset_layout
         Set-PrintAndLog -message  "Layout Id $($AssetLayout.id) with $($list.Fields.Count) Fields and $($list.Values.Count) Values and $($list.LinkedFiles.Count) linked files..."
 
-        $layoutFields = $TempLayoutFields
+        $layoutFields = @()
         $PosIDX = 499
 
         foreach ($field in $list.Fields.Values) {

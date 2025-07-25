@@ -18,7 +18,6 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
         }
         $validSiteListCount = $sitelists.Count
         set-Printandlog -message "Validated Sitelists from $originalSitelistcount -> $validSiteListCount"
-        $sitelists | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "sitelist_$($_.value.Name).json")}
 
         if ($null -ne $sitelists -and $sitelists.value.Count -gt 0) {
             foreach ($siteList in $sitelists.value) {
@@ -28,12 +27,10 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     # Fetch list schema (columns) – to map field types
                     $columnsUri = "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists/$($siteList.id)/columns"
                     $columns = Invoke-RestMethod -Headers $SharePointHeaders -Uri $columnsUri -Method GET
-                    $columns | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "sitelist_columns_$($siteList.Name).json")}
 
                     # Fetch list items
                     $itemsUri = "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists/$($siteList.id)/items?expand=fields"
                     $items = Invoke-RestMethod -Headers $SharePointHeaders -Uri $itemsUri -Method GET
-                    $columns | ForEach-Object {$_ | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "sitelist_items_$($siteList.Name).json")}
 
                     $ValidColumns=@()
                     foreach ($col in $columns.value) {
@@ -41,7 +38,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                             set-Printandlog -message "Skipping internal-only column $($col.displayName)"
                             continue
                         }
-                        if ($col.readOnly -eq $true -or $col.hidden -eq $true) {
+                        if ($col.readOnly -eq $true -or $col.columnGroup -eq "_hidden" -or $col.hidden -eq $true) {
                             set-Printandlog -message "Skipping hidden or read-only column $($col.displayName)"
                             continue
                         }
@@ -82,6 +79,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                             MultipleChoice  = [bool]$($fieldType -eq 'multichoice')
                         }
                     }
+                $ValidColumns | ConvertTo-Json -Depth 45 | Out-File $(Join-Path $tmpfolder "list_columns_$($siteList.Name).json")
 
                 if (-not $items.value -or $items.value.Count -lt 1) {
                     set-Printandlog -message "Skipping list with no values from site $($site.name) list $($siteList.displayName)"

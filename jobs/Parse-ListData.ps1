@@ -2,8 +2,10 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
     Set-PrintAndLog -message "Processing Lists as Asset Layouts" -Color Yellow
     foreach ($list in $DiscoveredLists) {
         $layoutName="$($list.SiteName)-$($list.ListName)"
-        Set-PrintAndLog -message  "searching for or creating $layoutName"
-        $AssetLayout=$($(Get-HuduAssetLayouts -name "$layoutName") ?? $(New-HuduAssetLayout -name "$layoutName")).assetlayout
+        Set-PrintAndLog -message  "searching for or creating asset layout- $layoutName"
+        $layoutIcon = $FontAwesomeIconMap[$(Select-ObjectFromList -allowNull $false -objects $FontAwesomeIconMap.Keys -message "Which Icon for layout $layoutName?")]
+        $layoutcolor = $HexColorMap[$(Select-ObjectFromList -allowNull $false -objects $HexColorMap.Keys -message "Choose a color for $layoutName with icon $layoutIcon")]
+        $AssetLayout=$($(Get-HuduAssetLayouts -name "$layoutName") ?? $(New-HuduAssetLayout -name "$layoutName" -Icon $layoutIcon -IconColor $layoutcolor)).assetlayout
         Set-PrintAndLog -message  "Layout Id $($AssetLayout.id) with $($list.Fields.Count) Fields and $($list.Values.Count) Values and $($list.LinkedFiles.Count) linked files..."
         $layoutFields = @()
         $PosIDX=500

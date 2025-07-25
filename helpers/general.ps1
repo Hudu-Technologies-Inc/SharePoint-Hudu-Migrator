@@ -1,3 +1,44 @@
+$HexColorMap = @{
+    "Orange-Red"        = "#FF5733"
+    "Sky Blue"          = "#33C1FF"
+    "Bootstrap Green"   = "#28A745"
+    "Bootstrap Yellow"  = "#FFC107"
+    "Bootstrap Red"     = "#DC3545"
+    "Purple"            = "#6F42C1"
+    "Teal"              = "#20C997"
+    "Indigo"            = "#6610F2"
+    "Cyan"              = "#17A2B8"
+    "Dark Gray"         = "#343A40"
+}
+
+$FontAwesomeIcons = @(
+    "fas fa-user",
+    "fas fa-cog",
+    "fas fa-home",
+    "fas fa-envelope",
+    "fas fa-phone",
+    "fas fa-globe",
+    "fas fa-check",
+    "fas fa-times",
+    "fas fa-exclamation-triangle",
+    "fas fa-info-circle",
+    "fas fa-lock",
+    "fas fa-unlock",
+    "fas fa-cloud",
+    "fas fa-database",
+    "fas fa-calendar",
+    "fas fa-download",
+    "fas fa-upload",
+    "fas fa-search",
+    "fas fa-plus",
+    "fas fa-minus"
+)
+$FontAwesomeIconMap = @{}
+foreach ($icon in $FontAwesomeIcons) {
+    $shortName = $icon -replace '^fas fa-', ''
+    $FontAwesomeIconMap[$shortName] = $icon
+}
+
 
 function Test-IsIntegerField {
     param (

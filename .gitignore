@@ -12,3 +12,7 @@ environ*.ps1
 !environ.example
 *.reference
 filearray.reference
+**env**.ps1
+environ.ps1
+.vscode/launch.json
+*/launch.json

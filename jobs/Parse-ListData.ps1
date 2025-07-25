@@ -8,15 +8,27 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         $selectedColorName = Select-ObjectFromList -allowNull $false -objects $colorOptions -message "Choose a color for $layoutName with icon $layoutIcon"
         $layoutColor = $HexColorMap[$selectedColorName]
         $layoutBackgroundColor = Get-ComplimentingBackgroundColor -HexColor $layoutcolor
-        $TempLayoutFields = @(@{label        = 'Imported from SharePoint'
-                                field_type   = 'Date'
-                                show_in_list = 'false'
-                                position     = 501},
-                                                @{
-                                label        = 'ITGlue URL'
-                                field_type   = 'Text'
-                                show_in_list = 'false'
-                                position     = 502})        
+        $TempLayoutFields = @(
+            @{
+                label        = 'Imported from SharePoint'
+                field_type   = 'Text'
+                show_in_list = 'false'
+                position     = 500
+            },
+            @{
+                label        = 'SharePoint URL'
+                field_type   = 'Text'
+                show_in_list = 'false'
+                position     = 501
+            },
+            @{
+                label        = 'Sharepoint ID'
+                field_type   = 'Text'
+                show_in_list = 'false'
+                position     = 502
+            }
+
+        )   
     
         $AssetLayout = Get-HuduAssetLayouts -name "$layoutName"
 
@@ -33,14 +45,11 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 -include_files $true `
                 -fields $TempLayoutFields
         }
-        $AssetLayout = $AssetLayout.assetlayout
-
-
+        $AssetLayout = $AssetLayout.asset_layout
         Set-PrintAndLog -message  "Layout Id $($AssetLayout.id) with $($list.Fields.Count) Fields and $($list.Values.Count) Values and $($list.LinkedFiles.Count) linked files..."
 
-
-        $layoutFields = @()
-        $PosIDX = 500
+        $layoutFields = $TempLayoutFields
+        $PosIDX = 499
 
         foreach ($field in $list.Fields.Values) {
             if (-not $field.HuduFieldType -or -not $field.Name) {

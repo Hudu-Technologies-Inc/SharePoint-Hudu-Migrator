@@ -64,13 +64,27 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 hint         = "original default - $($field.Default)"
                 position     = $PosIDX
             }
+          if ($field.HuduFieldType -eq "ListSelect") {
+                Set-PrintAndLog -message "Found $($field.Choices.Count) choices in '$($field.Name)'; Searching for or creating list for ListSelect Field"
+                $ListName = "$($layoutName)-$($field.Name)"
+                $huduList = Get-HuduList -Name $ListName
+                if (-not $huduList) {
+                    New-HuduList -name $ListName -Items $field.Options
+                    $huduList = Get-HuduList -Name $ListName
+                }
+                $list_id = $huduList.id
+
+                $newField += @{
+                    multiple_options          = $field.MultipleChoice
+                    list_id                   = $list_id
+                }
+
+
+            }
 
             if ($field.HuduFieldType -eq "Dropdown" -or $field.HuduFieldType -eq "ListSelect") {
                 Set-PrintAndLog -message "Found $($field.Choices.Count) choices in '$($field.Name)'"
-                $newField += @{
-                    options          = $field.Choices
-                    multiple_options = $field.MultipleChoice
-                }
+
             }
 
             $layoutFields += $newField

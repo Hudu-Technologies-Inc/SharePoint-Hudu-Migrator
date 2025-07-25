@@ -12,6 +12,9 @@ $SkippableInternalColumns=@(
 if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
     foreach ($site in $userSelectedSites) {
         $sitelists = Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists" -Method GET
+        $sitelists = $sitelists | Where-Object {
+        $_.displayName -notmatch '^App|Site Assets|Form Templates|Shared Documents|Style Library|Content and Structure Reports'
+        }
         if ($null -ne $sitelists -and $sitelists.value.Count -gt 0) {
             foreach ($siteList in $sitelists.value) {
                 try {
@@ -25,23 +28,25 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     $itemsUri = "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists/$($siteList.id)/items?expand=fields"
                     $items = Invoke-RestMethod -Headers $SharePointHeaders -Uri $itemsUri -Method GET
 
-                    if ($null -eq $items.value -or @($items.value).count -lt 1 -or $($items.value.fields).count -lt 1) {
-                        set-Printandlog -message "Skipping list with no values from site $($site.Name) list $($list.Name)"
-                    }
                     $ValidColumns=@()
-                    foreach ($col in $columns) {
+                    foreach ($col in $columns.value) {
                         if ($SkippableInternalColumns -contains $col.displayName) {
-                            write-host "skipping internal-only column $($col.displayName)"
+                            Write-Host "Skipping internal-only column $($col.displayName)"
                             continue
-                        } else {
-                            Write-host "Valid column $($col.displayName)"
-                            $ValidColumns+=$col
                         }
+                        if ($col.readOnly -eq $true -or $col.hidden -eq $true) {
+                            Write-Host "Skipping hidden or read-only column $($col.displayName)"
+                            continue
+                        }
+                        Write-Host "Valid column $($col.displayName)"
+                        $ValidColumns += $col
                     }
-                    if ($ValidColumns.Count -lt 2){
-                        set-Printandlog -message "Skipping list with not enough valid columns- site: $($site.Name) list: $($list.Name)"
+                    if ($ValidColumns.Count -lt 1){
+                        set-Printandlog -message "Skipping list with not enough valid columns- site: $($site.Name) list: $($siteList.Name)"
                         continue
                     }
+
+                    set-Printandlog -message "Validated Columns for site: $($site.Name) list: $($siteList.Name): $($columns.value.count) -> $($validatedColumns.value.count)"
 
                     # Build a simplified list entry
                     $fieldsSummary = @{}
@@ -56,7 +61,7 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                                 CheckinComment = $_.fields._CheckinComment
                         }}
 
-                    foreach ($col in $ValidColumns.value) {
+                    foreach ($col in $ValidColumns) {
                         $fieldType = Get-SPColumnType $col
                         $defaultValue = $col.defaultValue ?? $null
                         $choices = Get-SPColumnChoices -col $col
@@ -71,6 +76,12 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                         }
                     }
 
+                if (-not $items.value -or $items.value.Count -lt 1) {
+                    set-Printandlog -message "Skipping list with no values from site $($site.name) list $($siteList.displayName)"
+                    continue
+                }
+                Set-PrintAndLog -Message "List: $($siteList.displayName), Total Columns: $($columns.value.Count), Valid: $($ValidColumns.Count)"
+
                 $DiscoveredLists += [PSCustomObject]@{
                     ListName        = $siteList.displayName
                     SiteName        = $site.name
@@ -84,6 +95,8 @@ if ($true -eq $RunSummary.SetupInfo.includeSPLists) {
                     Write-Warning "Could not process list '$($siteList.displayName)': $_"
                 }
             }
+        } else {
+            set-Printandlog -message "No Site Lists Found for Site $($site.Name)!"
         }
     } 
 }

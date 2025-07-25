@@ -65,7 +65,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 position     = $PosIDX
             }
 
-            if ($field.HuduFieldType -eq "dropdown" -or $field.HuduFieldType -eq "checkboxes") {
+            if ($field.HuduFieldType -eq "Dropdown" -or $field.HuduFieldType -eq "ListSelect") {
                 Set-PrintAndLog -message "Found $($field.Choices.Count) choices in '$($field.Name)'"
                 $newField += @{
                     options          = $field.Choices

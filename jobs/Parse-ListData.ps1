@@ -58,21 +58,69 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         }
         $layoutFields += $newField
         $PosIDX -= 1
-    }
-    $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
-    $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)
-    $AssetLayout = $LayoutObject.assetlayout
-    $LayoutsCreated+=$AssetLayout
+    
+        $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
+        $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)
+        $AssetLayout = $LayoutObject.assetlayout
+        $AssetLayout | Add-Member -NotePropertyName SourceList -NotePropertyValue $list -Force
+        $AssetLayout | Add-Member -NotePropertyName layoutFields -NotePropertyValue $layoutFields -Force
+        
+        $LayoutsCreated+=$AssetLayout
 
 
-    if ($list.LinkedFiles.Count -gt 0){
-        $RelationsToResolve += @{
-            field_type   = "AssetTag"
-            label        = $task.Name
-            linked_files = $list.LinkedFiles
+        if ($list.LinkedFiles.Count -gt 0){
+            $RelationsToResolve += @{
+                field_type   = "AssetTag"
+                label        = $task.Name
+                linked_files = $list.LinkedFiles
+            }
         }
     }
-    foreach ($layout in $LayoutsCreated) {Set-PrintandLog -message "setting $($(Set-HuduAssetLayout -id $layout.id -Active $true).asset_layout.name) as active" }
+     
+    foreach ($layout in $LayoutsCreated) {
+        Set-PrintandLog -message "setting $($(Set-HuduAssetLayout -id $layout.id -Active $true).asset_layout.name) as active and readying row-level attribution"         
+        $listName = $LayoutsCreated.Sourcelist.ListName
+        $siteName = $LayoutsCreated.Sourcelist.SiteName
+        
+        $RowIDX = 0
+        foreach ($row in $LayoutsCreated.Sourcelist.Values) {
+            $RowIDX = $RowIDX+1
+            $newAsset = [PSCustomObject]@{
+                RowIDX              = $RowIDX
+                CompanyAttribution  = $null
+                HuduAssetObject     = $null
+                Layout              = $layout
+                Fields              = @{}
+            }
+            $fields = $row.fields
+            Write-Host "Setting Attribution for- Row $RowIDX of $($LayoutsCreated.Sourcelist.Values.Count) from site '$siteName', list '$listName':"
+            foreach ($key in $fields.PSObject.Properties.Name) {
+                if ($Layout.layoutFields -contains $key) {
+                    Write-Host "  $key = $($fields.$key)"
+                    $newAsset.Fields.key = $fields.$key
+                } else {
+                    Write-Host "  $key = $($fields.$key) [skipped, not in layout]"
+                }
+
+            }
+            switch ([int]$RunSummary.JobInfo.MigrationDest.Identifier) {
+                0 { $newAsset.CompanyAttribution = $SingleCompanyChoice.id }
+                1 { $newAsset.CompanyAttribution = $null }
+                default {
+                    $newAsset.CompanyAttribution = (
+                        Select-ObjectFromList `
+                            -message "Migrating Row from layout $($layout.name)... Which Company to attribute this to?" `
+                            -objects $AllCompanies -allowNull $false
+                    )
+                }
+            }
+            Set-PrintAndLog -message  "Adding new asset under new hudu layout $($newAsset.Layout.Id) / $($newAsset.Layout.Name) for $($newAsset.CompanyAttribution.Id) / $($newAsset.CompanyAttribution.Name)"
+
+            $newAsset.HuduAssetObject = $(New-HuduAsset -asset_layout_id $newAsset.Layout.Id -company_id $newAsset.CompanyAttribution.Id -fields $newAsset.Fields).asset
+            $AssetsCreated += $newAsset
+        }
+    }
+
 } else {
     Set-PrintAndLog -message "Processing Lists as Procedures and Procedure Tasks!" -Color Yellow
     $allProcedures =  Get-HuduProcedures
@@ -94,7 +142,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             0 { $newProcedure.CompanyAttribution = $SingleCompanyChoice.id }
             1 { $newProcedure.CompanyAttribution = $null }
             default {
-                $doc.CompanyId = (
+                $newProcedure.CompanyAttribution = (
                     Select-ObjectFromList `
                         -message "Migrating $(if ($newProcedure.FoundProcedure) {'existing'} else {'new'}) Procedure: $newProcedure.PreviewBlock... Which company to migrate into?" `
                         -objects $Attribution_Options
@@ -132,12 +180,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             $newProcedure.FormattedTasks += $newTask
             $newProcedure.CreatedTasks += New-HuduProcedureTask @newTask
         }
-
-
-
-
+        $createdProcedures += $newProcedure
     }
-
-
 }
 

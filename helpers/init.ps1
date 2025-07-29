@@ -60,6 +60,8 @@ $userSelectedSites = [System.Collections.ArrayList]@()
 
 # Sharepoint Lists that we found in user-selected sites
 $DiscoveredLists = [System.Collections.ArrayList]@()
+$ListsCreated = [System.Collections.ArrayList]@()
+$AssetsCreated = [System.Collections.ArrayList]@()
 
 # flattened list of files/folders we found in lists that were in user-selected Sites
 $discoveredFiles = [System.Collections.ArrayList]@()

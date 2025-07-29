@@ -289,6 +289,26 @@ Snippet: $snippet
 "@
 }
 
+function Get-ProcedureTasksPreviewBlock {
+    param (
+        [string]$ProcedureName,
+        [System.Collections.ArrayList]$TaskList =@()
+    )
+    $tasks_preview = ""
+        foreach ($task in $tasklist) {
+            if (-not $task.HuduFieldType -or -not $task.Name) {
+                Set-PrintAndLog -message "Skipping task with null type or name"
+                continue
+            }
+
+            $tasks_preview = @"
+$tasks_preview
+Task Type - $($task.HuduFieldType)
+Task Name - $($task.Name)
+"@
+        }
+}
+
 
 function Get-SafeFilename {
     param([string]$Name,

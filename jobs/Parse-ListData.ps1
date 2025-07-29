@@ -30,30 +30,30 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         $layoutFields = @()
         $PosIDX = 499
 
-        foreach ($field in $list.Fields.Values) {
-            if (-not $field.HuduFieldType -or -not $field.Name) {
+        foreach ($task in $list.Fields.Values) {
+            if (-not $task.HuduFieldType -or -not $task.Name) {
                 Set-PrintAndLog -message "Skipping invalid field with null type or name"
                 continue
             }
 
             $newField = @{
-                field_type   = $field.HuduFieldType
-                label        = $field.Name
+                field_type   = $task.HuduFieldType
+                label        = $task.Name
                 show_in_list = $true
-                required     = -not $field.Nullable
-                hint         = "original default - $($field.Default)"
+                required     = -not $task.Nullable
+                hint         = "original default - $($task.Default)"
                 position     = $PosIDX
             }
-            if ($field.HuduFieldType -eq "ListSelect") {
-                Set-PrintAndLog -message "Found $($field.Choices.Count) choices in '$($field.Name)'; Searching for or creating list for ListSelect Field"
-                $ListName = "$($layoutName)-$($field.Name)"
+            if ($task.HuduFieldType -eq "ListSelect") {
+                Set-PrintAndLog -message "Found $($task.Choices.Count) choices in '$($task.Name)'; Searching for or creating list for ListSelect Field"
+                $ListName = "$($layoutName)-$($task.Name)"
                 $huduList = Get-HuduList -Name $ListName
-                if (-not $huduList -and $field.Options) {
-                    New-HuduList -name $ListName -Items $field.Options
+                if (-not $huduList -and $task.Options) {
+                    New-HuduList -name $ListName -Items $task.Options
                     $huduList = Get-HuduList -Name $ListName
                 }
                 $newField.list_id = $huduList.id
-                $newField.multiple_options = $field.MultipleChoice
+                $newField.multiple_options = $task.MultipleChoice
             }
         }
         $layoutFields += $newField
@@ -68,12 +68,76 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
     if ($list.LinkedFiles.Count -gt 0){
         $RelationsToResolve += @{
             field_type   = "AssetTag"
-            label        = $field.Name
+            label        = $task.Name
             linked_files = $list.LinkedFiles
         }
     }
+    foreach ($layout in $LayoutsCreated) {Set-PrintandLog -message "setting $($(Set-HuduAssetLayout -id $layout.id -Active $true).asset_layout.name) as active" }
 } else {
-    Set-PrintAndLog -message "Processing Lists as Procedures" -Color Yellow
+    Set-PrintAndLog -message "Processing Lists as Procedures and Procedure Tasks!" -Color Yellow
+    $allProcedures =  Get-HuduProcedures
+    $createdProcedures = [System.Collections.ArrayList]@()
+    foreach ($list in $DiscoveredLists) {
+        $newProcedure= [PSCustomObject]@{
+            Name                = "$($list.SiteName)-$($list.ListName)"
+            FoundProcedure      = $allProcedures | Where-Object {$_.name -eq $newProcedure.Name}
+            CreatedProcedure    = $null
+            Tasks               = $list.Fields.Values
+            PreviewBlock        = Get-ProcedureTasksPreviewBlock -ProcedureTitle $newProcedure.Name -TaskList $list.Fields.Values
+            CompanyAttribution  = $null
+            FormattedTasks      = @()
+            CreatedTasks        = @()
+        Description         = "Procedure Migrated from Sharepoint$(if ($list.itemsUri) { " at $($list.itemsUri)"})"
+        }
+        Set-PrintAndLog -message  "$(if ($newProcedure.FoundProcedure) {'Updating Found'} else {'Creating New'}) procedure with $($newProcedure.Tasks.Count) tasks- $($newProcedure.Name)"
+        switch ([int]$RunSummary.JobInfo.MigrationDest.Identifier) {
+            0 { $newProcedure.CompanyAttribution = $SingleCompanyChoice.id }
+            1 { $newProcedure.CompanyAttribution = $null }
+            default {
+                $doc.CompanyId = (
+                    Select-ObjectFromList `
+                        -message "Migrating $(if ($newProcedure.FoundProcedure) {'existing'} else {'new'}) Procedure: $newProcedure.PreviewBlock... Which company to migrate into?" `
+                        -objects $Attribution_Options
+                ).CompanyId
+            }
+        }
+
+
+
+        if (-not $newProcedure.FoundProcedure) {
+            Set-PrintAndLog -message  "Creating New Procedure $($newProcedure.Name) $(if ($newProcedure.CompanyAttribution) {"Attribution set to Company $($newProcedure.CompanyAttribution)"} else {'Global attribution Set'})"
+            if ($null -ne $newProcedure.CompanyAttribution) {
+                $newProcedure.CreatedProcedure = $(New-HuduProcedure -CompanyId $newProcedure.CompanyAttribution -Name $newProcedure.Name `
+                                              -Description $newProcedure.description).procedure
+            } else {
+                $newProcedure.CreatedProcedure = $(New-HuduProcedure -Name $newProcedure.Name `
+                                              -Description $newProcedure.description).procedure
+            }
+        } else {
+            Set-PrintAndLog -message  "Updating Procedure Procedure $($newProcedure.Name) $(if ($newProcedure.CompanyAttribution) {"Attribution set to Company $($newProcedure.CompanyAttribution)"} else {'Global attribution Set'})"
+            if ($null -ne $newProcedure.CompanyAttribution) {
+                $newProcedure.FoundProcedure = $(Set-HuduProcedure -id $newProcedure.FoundProcedure.id -CompanyId $newProcedure.CompanyAttribution -Name $newProcedure.Name `
+                                              -Description $newProcedure.description).procedure
+            } else {
+                $newProcedure.FoundProcedure = $(Set-HuduProcedure -id $newProcedure.FoundProcedure.id -Name $newProcedure.Name `
+                                              -Description $newProcedure.description).procedure
+            }
+        }
+        foreach ($task in $newProcedure.Tasks) {
+            $newTask=@{
+                ProcedureId   = $($newProcedure.CreatedProcedure ?? $newProcedure.FoundProcedure)
+                Name          = "$($task.Name)"
+                Description   = "$($task.Name)$(if ($task.hint) {"- $($task.hint)"} else {''})$(if ($field.Choices) {  "Choices - $($field.Choices -join ', ' )"} else { '' })"
+            }
+            $newProcedure.FormattedTasks += $newTask
+            $newProcedure.CreatedTasks += New-HuduProcedureTask @newTask
+        }
+
+
+
+
+    }
+
 
 }
 

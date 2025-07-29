@@ -152,35 +152,26 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
 
 
 
-        if ($null -ne $newProcedure.FoundProcedure) {
-            Set-PrintAndLog -message  "Creating New Procedure $($newProcedure.Name) $(if ($newProcedure.CompanyAttribution) {"Attribution set to Company $($newProcedure.CompanyAttribution)"} else {'Global attribution Set'})"
-            if ($null -ne $newProcedure.CompanyAttribution) {
-                $newProcedure.CreatedProcedure = $(New-HuduProcedure -CompanyId $newProcedure.CompanyAttribution -Name $newProcedure.Name `
-                                              -Description $newProcedure.description).procedure
-            } else {
-                $newProcedure.CreatedProcedure = $(New-HuduProcedure -Name $newProcedure.Name `
-                                              -Description $newProcedure.description).procedure
-            }
+        Set-PrintAndLog -message  "Creating New Procedure $($newProcedure.Name) $(if ($newProcedure.CompanyAttribution) {"Attribution set to Company $($newProcedure.CompanyAttribution)"} else {'Global attribution Set'})"
+        if ($null -ne $newProcedure.CompanyAttribution) {
+            $newProcedure.CreatedProcedure = $(New-HuduProcedure -CompanyId $newProcedure.CompanyAttribution -Name $newProcedure.Name `
+                                            -Description $newProcedure.description).procedure
         } else {
-            Set-PrintAndLog -message  "Updating Procedure Procedure $($newProcedure.Name) $(if ($newProcedure.CompanyAttribution) {"Attribution set to Company $($newProcedure.CompanyAttribution)"} else {'Global attribution Set'})"
-            if ($null -ne $newProcedure.CompanyAttribution) {
-                $newProcedure.FoundProcedure = $(Set-HuduProcedure -id $newProcedure.FoundProcedure.id -CompanyId $newProcedure.CompanyAttribution -Name $newProcedure.Name `
-                                              -Description $newProcedure.description).procedure
-            } else {
-                $newProcedure.FoundProcedure = $(Set-HuduProcedure -id $newProcedure.FoundProcedure.id -Name $newProcedure.Name `
-                                              -Description $newProcedure.description).procedure
-            }
+            $newProcedure.CreatedProcedure = $(New-HuduProcedure -Name $newProcedure.Name `
+                                            -Description $newProcedure.description).procedure
         }
         foreach ($task in $newProcedure.Tasks) {
             $newTask=@{
-                ProcedureId   = $($newProcedure.CreatedProcedure ?? $newProcedure.FoundProcedure).id
+                ProcedureId   = $($newProcedure.CreatedProcedure).id
                 Name          = "$($task.Name)"
                 Description   = "$($task.Name)$(if ($task.hint) {"- $($task.hint)"} else {''})$(if ($field.Choices) {  "Choices - $($field.Choices -join ', ' )"} else { '' })"
             }
             $newProcedure.FormattedTasks += $newTask
+
+
             $newProcedure.CreatedTasks += New-HuduProcedureTask @newTask
         }
         $createdProcedures += $newProcedure
     }
-}
 
+}

@@ -57,9 +57,22 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 foreach ($option in $task.Choices){
                     $options+="$option"
                 }
-                write-host "Options $($options)"
-                $newField.list_id = $($(Get-HuduLists -Name "$($layoutName)-$($task.Name)") ?? $(New-HuduList -name "$($layoutName)-$($task.Name)" -Items $options)).id
+                $listName = "$layoutName-$($task.Name)"
+                $huduList = Get-HuduLists -Name $listName | Select-Object -First 1
+
+                if (-not $huduList) {
+                    $huduList = New-HuduList -Name $listName -Items $options
+                }
+                $huduList = Get-HuduLists -Name $listName | Select-Object -First 1
+
+
+                if (-not $huduList.id) {
+                    throw "Failed to create or find Hudu list '$listName' for ListSelect field '$($task.Name)'"
+                }
+
+                $newField.list_id = $huduList.id
                 $newField.multiple_options = $task.MultipleChoice
+                Set-PrintAndLog -message "Sleeping to allow background worker to commit fields conversion for ListSelect $(Start-Sleep 8) $($newField.label)"
             }
             $layoutFields += $newField
             $PosIDX -= 1

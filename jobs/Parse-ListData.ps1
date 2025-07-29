@@ -47,23 +47,23 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 field_type   = $task.HuduFieldType
                 label        = $task.Name
                 show_in_list = $true
-                required     = -not $task.Nullable
+                required     = $((-not $task.Nullable) ?? $false)
                 hint         = "original default - $($task.Default)"
                 position     = $PosIDX
             }
             if ($task.HuduFieldType -eq "ListSelect") {
                 Set-PrintAndLog -message "Found $($task.Choices.Count) choices in '$($task.Name)'; Searching for or creating list for ListSelect Field"
-                $ListName = "$($layoutName)-$($task.Name)"
-                $huduList = Get-HuduLists -Name $ListName
-                if (-not $huduList -and $task.Options) {
-                    $huduList =New-HuduList -name $ListName -Items $task.Options
+                $options = @()
+                foreach ($option in $task.Choices){
+                    $options+="$option"
                 }
-                $newField.list_id = $huduList.id
+                write-host "Options $($options)"
+                $newField.list_id = $(Get-HuduLists -Name "$($layoutName)-$($task.Name)") ?? $(New-HuduList -name "$($layoutName)-$($task.Name)" -Items $options).id
                 $newField.multiple_options = $task.MultipleChoice
             }
+            $layoutFields += $newField
+            $PosIDX -= 1
         }
-        $layoutFields += $newField
-        $PosIDX -= 1
     
         $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
         $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)

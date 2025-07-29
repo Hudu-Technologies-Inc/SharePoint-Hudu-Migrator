@@ -218,14 +218,17 @@ function Get-HuduModule {
         )
 
     if ($true -eq $use_hudu_fork) {
-        $dst = Split-Path -Path (Split-Path -Path $HAPImodulePath -Parent) -Parent
-        Write-Host "Using Lastest Master Branch of Hudu Fork for HuduAPI"
-        $zip = "$env:TEMP\huduapi.zip"
-        Invoke-WebRequest -Uri "https://github.com/Hudu-Technologies-Inc/HuduAPI/archive/refs/heads/master.zip" -OutFile $zip
-        Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force 
-        $extracted = Join-Path $env:TEMP "HuduAPI-master" 
-        if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-        Move-Item -Path $extracted -Destination $dst Remove-Item $zip -Force
+        if (-not $(Test-Path $HAPImodulePath)) {
+            $dst = Split-Path -Path (Split-Path -Path $HAPImodulePath -Parent) -Parent
+            Write-Host "Using Lastest Master Branch of Hudu Fork for HuduAPI"
+            $zip = "$env:TEMP\huduapi.zip"
+            Invoke-WebRequest -Uri "https://github.com/Hudu-Technologies-Inc/HuduAPI/archive/refs/heads/master.zip" -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force 
+            $extracted = Join-Path $env:TEMP "HuduAPI-master" 
+            if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+            Move-Item -Path $extracted -Destination $dst 
+            Remove-Item $zip -Force
+        }
     } else {
         Write-Host "Assuming PSGallery Module if not already locally cloned at $HAPImodulePath"
     }

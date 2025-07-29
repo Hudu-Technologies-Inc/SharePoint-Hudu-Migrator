@@ -152,7 +152,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
 
 
 
-        if (-not $newProcedure.FoundProcedure) {
+        if ($null -ne $newProcedure.FoundProcedure) {
             Set-PrintAndLog -message  "Creating New Procedure $($newProcedure.Name) $(if ($newProcedure.CompanyAttribution) {"Attribution set to Company $($newProcedure.CompanyAttribution)"} else {'Global attribution Set'})"
             if ($null -ne $newProcedure.CompanyAttribution) {
                 $newProcedure.CreatedProcedure = $(New-HuduProcedure -CompanyId $newProcedure.CompanyAttribution -Name $newProcedure.Name `
@@ -173,7 +173,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         }
         foreach ($task in $newProcedure.Tasks) {
             $newTask=@{
-                ProcedureId   = $($newProcedure.CreatedProcedure ?? $newProcedure.FoundProcedure)
+                ProcedureId   = $($newProcedure.CreatedProcedure ?? $newProcedure.FoundProcedure).id
                 Name          = "$($task.Name)"
                 Description   = "$($task.Name)$(if ($task.hint) {"- $($task.hint)"} else {''})$(if ($field.Choices) {  "Choices - $($field.Choices -join ', ' )"} else { '' })"
             }

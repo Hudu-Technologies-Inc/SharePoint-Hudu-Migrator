@@ -48,7 +48,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 label        = $task.Name
                 show_in_list = $true
                 required     = $((-not $task.Nullable) ?? $false)
-                hint         = "original default - $($task.Default)"
+                hint         = "$(if ($task.Default.value) {$task.Default.value} else {if ($task.Choices) {"chocies - $($task.Choices -join ', ' )"} else {'migrated from Sharepoint'}})"
                 position     = $PosIDX
             }
             if ($task.HuduFieldType -eq "ListSelect") {
@@ -58,7 +58,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                     $options+="$option"
                 }
                 write-host "Options $($options)"
-                $newField.list_id = $(Get-HuduLists -Name "$($layoutName)-$($task.Name)") ?? $(New-HuduList -name "$($layoutName)-$($task.Name)" -Items $options).id
+                $newField.list_id = $($(Get-HuduLists -Name "$($layoutName)-$($task.Name)") ?? $(New-HuduList -name "$($layoutName)-$($task.Name)" -Items $options)).id
                 $newField.multiple_options = $task.MultipleChoice
             }
             $layoutFields += $newField

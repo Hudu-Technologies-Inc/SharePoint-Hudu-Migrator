@@ -2,6 +2,13 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
     Set-PrintAndLog -message "Processing Lists as Asset Layouts" -Color Yellow
     foreach ($list in $DiscoveredLists) {
         $layoutName="$($list.SiteName)-$($list.ListName)"
+        if (-not $list.Fields.Values -or -not $list.Fields){
+                Set-PrintAndLog -message "Skipping invalid layout with not enough fields"
+                continue            
+        }
+
+
+
         Set-PrintAndLog -message  "searching for or creating asset layout- $layoutName"
         $layoutIcon = $FontAwesomeIconMap[$(Select-ObjectFromList -allowNull $false -objects @($FontAwesomeIconMap.Keys) -message "Which Icon for layout $layoutName?")]
         $colorOptions = $HexColorMap.Keys | Sort-Object
@@ -47,10 +54,9 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             if ($task.HuduFieldType -eq "ListSelect") {
                 Set-PrintAndLog -message "Found $($task.Choices.Count) choices in '$($task.Name)'; Searching for or creating list for ListSelect Field"
                 $ListName = "$($layoutName)-$($task.Name)"
-                $huduList = Get-HuduList -Name $ListName
+                $huduList = Get-HuduLists -Name $ListName
                 if (-not $huduList -and $task.Options) {
-                    New-HuduList -name $ListName -Items $task.Options
-                    $huduList = Get-HuduList -Name $ListName
+                    $huduList =New-HuduList -name $ListName -Items $task.Options
                 }
                 $newField.list_id = $huduList.id
                 $newField.multiple_options = $task.MultipleChoice
@@ -62,10 +68,13 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         $layoutFields | ConvertTo-Json -Depth 10 | Out-File "$(join-path $logsFolder -ChildPath "debug-fields-$layoutName.json")" 
         $LayoutObject = Set-HuduAssetLayout -id $AssetLayout.Id -fields @($layoutFields)
         $AssetLayout = $LayoutObject.assetlayout
-        $AssetLayout | Add-Member -NotePropertyName SourceList -NotePropertyValue $list -Force
-        $AssetLayout | Add-Member -NotePropertyName layoutFields -NotePropertyValue $layoutFields -Force
+
         
-        $LayoutsCreated+=$AssetLayout
+        $LayoutsCreated+=@{
+            SourceList = $list
+            layoutFields = $layoutFields    
+            HuduLayout = $AssetLayout
+        }
 
 
         if ($list.LinkedFiles.Count -gt 0){
@@ -77,7 +86,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         }
     }
      
-    foreach ($layout in $LayoutsCreated) {
+    foreach ($layout in $LayoutsCreated | Where-Object {$_.id -and $_.id -ne $null -and $_.id -ne 0}) {
         Set-PrintandLog -message "setting $($(Set-HuduAssetLayout -id $layout.id -Active $true).asset_layout.name) as active and readying row-level attribution"         
         $listName = $LayoutsCreated.Sourcelist.ListName
         $siteName = $LayoutsCreated.Sourcelist.SiteName
@@ -89,7 +98,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 RowIDX              = $RowIDX
                 CompanyAttribution  = $null
                 HuduAssetObject     = $null
-                Layout              = $layout
+                Layout              = $layout.HuduLayout
                 Fields              = @{}
             }
             $fields = $row.fields
@@ -109,7 +118,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 default {
                     $newAsset.CompanyAttribution = (
                         Select-ObjectFromList `
-                            -message "Migrating Row from layout $($layout.name)... Which Company to attribute this to?" `
+                            -message "Migrating Row from layout $($newAsset.Layout.name)... Which Company to attribute this to?" `
                             -objects $AllCompanies -allowNull $false
                     )
                 }

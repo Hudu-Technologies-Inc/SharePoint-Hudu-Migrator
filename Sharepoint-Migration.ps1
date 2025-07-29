@@ -23,7 +23,7 @@ foreach ($module in @("MSAL.PS")) {
 }
 Set-Content -Path $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
-Set-PrintAndLog -message "Imported Hudu Module... $(Get-HuduModule)" -Color DarkBlue
+Set-PrintAndLog -message "Imported Hudu Module $(if ($USE_HUDUFORK) {'from Hudu Github'} else {'from PSgallery'})... $(Get-HuduModule -use_hudu_fork $USE_HUDUFORK)" -Color DarkBlue
 Set-PrintAndLog -message "Checked Hudu Credentials... $(Set-HuduInstance)" -Color DarkBlue
 Set-PrintAndLog -message "Checked Hudu Version... $(Get-HuduVersionCompatible)" -Color DarkBlue
 $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId

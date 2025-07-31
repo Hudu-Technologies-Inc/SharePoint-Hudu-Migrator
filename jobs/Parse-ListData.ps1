@@ -35,7 +35,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
         Set-PrintAndLog -message  "Layout Id $($AssetLayout.id) with $($list.Fields.Count) Fields and $($list.Values.Count) Values and $($list.LinkedFiles.Count) linked files..."
 
         $layoutFields = @()
-        $PosIDX = 499
+        $PosIDX = 111
 
         foreach ($task in $list.Fields.Values) {
             if (-not $task.HuduFieldType -or -not $task.Name) {
@@ -46,7 +46,7 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
             $newField = @{
                 field_type   = $task.HuduFieldType
                 label        = $task.Name
-                show_in_list = $true
+                show_in_list = 'true'
                 required     = $((-not $task.Nullable) ?? $false)
                 hint         = "$(if ($task.Default.value) {$task.Default.value} else {if ($task.Choices) {"chocies - $($task.Choices -join ', ' )"} else {'migrated from Sharepoint'}})"
                 position     = $PosIDX
@@ -69,9 +69,11 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                 if (-not $huduList.id) {
                     throw "Failed to create or find Hudu list '$listName' for ListSelect field '$($task.Name)'"
                 }
-
+                $newField.required = 'true'
                 $newField.list_id = $huduList.id
-                $newField.multiple_options = $task.MultipleChoice
+                Write-Host "List ID: $($huduList.id) $(($huduList | ConvertTo-Json -depth 5).ToString())"
+                $newField.multiple_options = 'true'
+                # $newField.multiple_options = $task.MultipleChoice
                 Set-PrintAndLog -message "Sleeping to allow background worker to commit fields conversion for ListSelect $(Start-Sleep 8) $($newField.label)"
             }
             $layoutFields += $newField

@@ -70,10 +70,11 @@ if ($RunSummary.SetupInfo.SPListsAsLayouts) {
                     throw "Failed to create or find Hudu list '$listName' for ListSelect field '$($task.Name)'"
                 }
                 $newField.required = 'true'
+                $newField.options = $options                 
                 $newField.list_id = $huduList.id
                 Write-Host "List ID: $($huduList.id) $(($huduList | ConvertTo-Json -depth 5).ToString())"
                 $newField.multiple_options = 'true'
-                # $newField.multiple_options = $task.MultipleChoice
+                # $newField.multiple_options = $tk.MultipleChoice
                 Set-PrintAndLog -message "Sleeping to allow background worker to commit fields conversion for ListSelect $(Start-Sleep 8) $($newField.label)"
             }
             $layoutFields += $newField

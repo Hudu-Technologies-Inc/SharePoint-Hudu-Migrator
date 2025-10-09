@@ -290,6 +290,7 @@ function ConvertDownloadedFiles {
 
     return $convertedbatch
 }
+
 function Convert-PdfToSlimHtml {
     param (
         [Parameter(Mandatory)][string]$InputPdfPath,
@@ -306,7 +307,7 @@ function Convert-PdfToSlimHtml {
     $htmlOutput = Join-Path $OutputDir "$baseName.slim.html"
 
     $args = @(
-        "-xml"            # XML format
+        # "-xml"            # XML format
         "-p"              # Extract images
         "-zoom", "1.0"    # No zoom distortion
         "-noframes"       # Single output file
@@ -314,18 +315,18 @@ function Convert-PdfToSlimHtml {
         "-enc", "UTF-8"
         "-nodrm"
         "`"$InputPdfPath`"",
-        "`"$xmlOutput`""
+        "`"$htmlOutput`""
     )
 
-    # Run conversion to XML
+    # # Run conversion to XML
     Start-Process -FilePath $PdfToHtmlPath -ArgumentList $args -NoNewWindow -Wait
 
-    if (-not (Test-Path $xmlOutput)) {
-        throw "XML output was not created."
-    }
+    # if (-not (Test-Path $xmlOutput)) {
+    #     throw "XML output was not created."
+    # }
 
     # Convert XML to lightweight HTML
-    Convert-PdfXmlToHtml -XmlPath $xmlOutput -OutputHtmlPath $htmlOutput
+    # Convert-PdfXmlToHtml -XmlPath $xmlOutput -OutputHtmlPath $htmlOutput
     return $htmlOutput
 }
 

@@ -5,7 +5,7 @@ $AvailableB64MimeTypes = 'image|application|text'
 
 # Libre Set-Up
 $portableLibreOffice=$false
-$LibreFullInstall="https://www.nic.funet.fi/pub/mirrors/documentfoundation.org/libreoffice/stable/25.8.0/win/x86_64/LibreOffice_25.8.0_Win_x86-64.msi"
+$LibreFullInstall="https://mirror.usi.edu/pub/tdf/libreoffice/stable/25.8.3/win/x86_64/LibreOffice_25.8.3_Win_x86-64.msi"
 $LibrePortaInstall="https://download.documentfoundation.org/libreoffice/portable/25.2.3/LibreOfficePortable_25.2.3_MultilingualStandard.paf.exe"
 
 # Poppler Setup

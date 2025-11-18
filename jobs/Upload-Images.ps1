@@ -68,9 +68,11 @@ foreach ($doc in $StubbedArticles) {
                 Set-PrintAndLog -Message "Uploading image: $($record.FileName) => record_id=$($($doc.stub).id) record_type=Article" -Color Green
                 $HuduUpload=$null
                 if ($record.IsImage) {
-                    $HuduUpload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article').public_photo)
+                    $HuduUpload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'))
+                    $HuduUpload = $HuduUpload.public_photo ?? $HuduUpload
                 } else {
                     $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
+                    $HuduUpload = $HuduUpload.upload ?? $HuduUpload
                 }
 
                 $mapEntry=[PSCustomObject]@{

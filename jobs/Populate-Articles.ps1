@@ -27,6 +27,7 @@ foreach ($doc in $StubbedArticles) {
         if (-not ($doc.FileTooLarge)) {
             Set-PrintAndLog "Content Length Warning: Content, even after stripping bloat is too large. Safe-Maximum is $HUDU_MAX_DOCSIZE Characters, and this is $($($doc.ReplacedContent).length) chars long! Adding as attached document!"
             $uploadable=$($(Get-HuduUploads | where-object {$_.uploadable_type -eq 'Article' -and $_.uploadable_id -eq $doc.stub.id}) ?? $(New-HuduUpload -FilePath $doc.LocalPath -record_id $($doc.stub).id -record_type 'Article'))
+            $uploadable = $uploadable.upload ?? $uploadable
             $Link = "<br><a href='$($uploadable.url ?? $doc.webViewUrl)' target='_blank'>View Original</a>"
             $note = "</p>File was too large to attach to Hudu.</p>"    
             $htmlPath = Join-Path $tmpfolder -ChildPath ("LargeDoc_{0}.html" -f (Get-SafeFilename ([IO.Path]::GetFileNameWithoutExtension($($doc.title)))))
@@ -52,17 +53,20 @@ foreach ($doc in $StubbedArticles) {
     }
     try {
         if ($null -ne $($doc.CompanyId) -and $($doc.CompanyId) -ne -1) {
-            $doc.HuduArticle = $(Set-HuduArticle -ArticleId $($doc.stub).id -Content $FinalContents -name $($($doc.title) ?? "Unknown Title") -CompanyId $($doc.CompanyId)).Article
+            $doc.HuduArticle = $(Set-HuduArticle -ArticleId $($doc.stub).id -Content $FinalContents -name $($($doc.title) ?? "Unknown Title") -CompanyId $($doc.CompanyId))
         } else {
-            $doc.HuduArticle = $(Set-HuduArticle -ArticleId $($doc.stub).id -Content $FinalContents -name $($($doc.title) ?? "Unknown Title")).Article
+            $doc.HuduArticle = $(Set-HuduArticle -ArticleId $($doc.stub).id -Content $FinalContents -name $($($doc.title) ?? "Unknown Title"))
         }
+        $doc.HuduArticle = $doc.HuduArticle.Article ?? $doc.HuduArticle
         
     } catch {
         # Handle articles that are too large having an issue during file upload / linking
+        $HuduArticle=$(Get-HuduArticles -id $($doc.stub).id)
+        $HuduArticle = $HuduArticle.Article ?? $HuduArticle
         $ErrorInfo=@{
             Message="Error Uploading article with content that is too long: $($doc.title)"
             Error=$_
-            HuduArticle=$(Get-HuduArticles -id $($doc.stub).id).Article
+            HuduArticle=$HuduArticle
             doc = "Sharepoint page with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? '')"
             ArticleURL=$($doc.stub.url ?? "URL not found")
         }

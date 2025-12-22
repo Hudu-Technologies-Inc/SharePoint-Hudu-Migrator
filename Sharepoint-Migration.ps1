@@ -31,17 +31,16 @@ foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort
     . $file.FullName
 }
 foreach ($module in @("MSAL.PS")) {
-    write-host "Installing, Updating, Importing module: $module. Please be patient..."  -ForegroundColor DarkBlue; Install-Module $module -Scope CurrentUser -Force -AllowClobber; Update-Module $module -Force; Import-Module $module
+    write-host "Installing, Updating, Importing module: $module. Please be patient..."  -ForegroundColor DarkBlue;  Update-Module $module -Force;  Install-Module $module -Scope CurrentUser -Force -AllowClobber; Import-Module $module;
 }
 Set-Content -Path $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
 Set-PrintAndLog -message "Imported Hudu Module... $(Get-HuduModule)" -Color DarkBlue
-Set-PrintAndLog -message "Checked Hudu Credentials... $(Set-HuduInstance)" -Color DarkBlue
+Set-PrintAndLog -message "Checked Hudu Credentials... $(Set-HuduInstance -huduapikey $huduapikey -hudubaseurl $hudubaseurl)" -Color DarkBlue
 Set-PrintAndLog -message "Checked Hudu Version... $(Get-HuduVersionCompatible)" -Color DarkBlue
 $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
 $clientId = $clientId ?? $registration.clientId
 $tenantId = $tenantId ?? $registration.tenantId
-clear-host
 
 # 1.4 Authenticate to Sharepoint
 Start-Process "https://microsoft.com/devicelogin"

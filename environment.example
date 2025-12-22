@@ -1,0 +1,12 @@
+# If your app registration already exists in your tenant, you can pre-fill these items.
+# if you dont already have app registration, you can allow the wizard to create one for you, just be sure to allow public client flow when prompted
+
+$clientID = "" # (application id)
+$tenantID = "" # (directory id)
+$clientSecret= ""
+
+
+$hudubaseurl = "yoururl.huducloud.com"
+$huduapikey = ""
+
+. .\Sharepoint-Migration.ps1

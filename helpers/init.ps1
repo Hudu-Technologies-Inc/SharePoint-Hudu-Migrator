@@ -57,7 +57,7 @@ $RunSummary=@{
     }
     SetupInfo=@{
         HuduDestination     = $HuduBaseUrl
-        HuduMaxContentLength= 4500
+        HuduMaxContentLength= 100000
         SharepointSource    = $SharepointBaseUrl
         HuduVersion         = [version]$HuduAppInfo.version
         PowershellVersion   = [version]$PowershellVersion

@@ -12,3 +12,4 @@ environ*.ps1
 !environ.example
 *.reference
 filearray.reference
+!environment.example

@@ -29,6 +29,8 @@ if ($RunSummary.JobInfo.MigrationSource.Identifier -eq 0) {
         [void]$userSelectedSites.Add($selectedSite)
     }
 } else {
+    if ($null -eq $allSites -or $allSites.count -lt 1) { continue } 
+
     [void]$userSelectedSites.AddRange($allSites)
     }
     if ($userSelectedSites.count -lt 1){

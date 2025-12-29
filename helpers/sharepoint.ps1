@@ -20,6 +20,7 @@ function Download-GraphDriveItemsRecursively {
 
             # Recurse and add all returned files to our list
             $childFiles = Download-GraphDriveItemsRecursively -siteId $siteId -siteName $siteName -driveId $driveId -folderId $item.id -localPath $itemPath
+            if ($null -eq $childFiles -or $childFiles.count -lt 1) { continue } 
             $discoveredFiles.AddRange($childFiles)
         }
         elseif ($item.file) {

@@ -4,7 +4,11 @@ Easy Migration from SharePoint to Hudu
 ## Note on Intended Purpose
 If you are working from a single mapped SharePoint drive rather than multiple SharePoint sites, you may prefer the direct [Files-Hudu-Migration](https://github.com/Hudu-Technologies-Inc/Files-Hudu-Migration) tool. However, for environments with multiple SharePoint sites, this project is the recommended solution. It preserves inter-site links and treats each SharePoint site as a distinct entity, whereas Files-Hudu-Migration processes each file or folder as an individual entity.
 
-## Setup
+> **Permissions Notice**
+>
+> Some scripts may require elevated permissions. If you encounter access-related errors, consider launching PowerShell (`pwsh`) with **Run as Administrator**.
+>
+> Please note that administrative privileges do not override Windows Rights Management or similarly enforced file protection mechanisms.
 
 ### Prerequisites
 

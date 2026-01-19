@@ -4,12 +4,6 @@ Easy Migration from SharePoint to Hudu
 ## Note on Intended Purpose
 If you are working from a single mapped SharePoint drive rather than multiple SharePoint sites, you may prefer the direct [Files-Hudu-Migration](https://github.com/Hudu-Technologies-Inc/Files-Hudu-Migration) tool. However, for environments with multiple SharePoint sites, this project is the recommended solution. It preserves inter-site links and treats each SharePoint site as a distinct entity, whereas Files-Hudu-Migration processes each file or folder as an individual entity.
 
-> **Permissions Notice**
->
-> Some scripts may require elevated permissions. If you encounter access-related errors, consider launching PowerShell (`pwsh`) with **Run as Administrator**.
->
-> Please note that administrative privileges do not override Windows Rights Management or similarly enforced file protection mechanisms.
-
 ### Prerequisites
 
 - Hudu Instance of 2.37.1 or newer
@@ -19,6 +13,34 @@ If you are working from a single mapped SharePoint drive rather than multiple Sh
 - Powershell 7.5.0 or later
 - Libreoffice **(script will start install if not present)**
 - Read permissions for SharePoint **(script will register app in entra if not manually set)**
+
+### Environment File and Invocation
+
+> **Permissions Notice**
+>
+> Some scripts may require elevated permissions. If you encounter access-related errors, consider launching PowerShell (`pwsh`) with **Run as Administrator**.
+>
+> Please note that administrative privileges do not override Windows Rights Management or similarly enforced file protection mechanisms.
+
+If you are using an environment file to hold your secrets and user-variables, you can make a copy of the environment file example and enter your values as needed.
+```
+Copy-Item environment.example my-environment.ps1
+notepad my-environment.ps1
+```
+
+And then you can kick it off by opening `pwsh7` session as `administrator`, and `dot-sourcing` your `environment file`, as in the below example-
+
+```
+. .\my-environment.ps1
+```
+
+Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
+Kick off this script directly by opening `pwsh7` session as `administrator`, and `dot-sourcing` the Sharepoint Migration Script
+
+```
+. .\Sharepoint-Migration.ps1
+```
+
 
 ### Setup Azure AppRegistration
 

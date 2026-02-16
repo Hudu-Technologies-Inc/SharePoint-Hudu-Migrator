@@ -143,7 +143,7 @@ function Get-HuduModule {
 }
 function Get-HuduVersionCompatible {
     param (
-        [version]$RequiredHuduVersion = [version]"2.37.1",
+        [version]$RequiredHuduVersion = [version]"2.40.1",
         $DisallowedVersions = @([version]"2.37.0")
     )
 

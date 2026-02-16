@@ -105,7 +105,7 @@ Just before the file conversion process begins, this script will download and in
 
 All files can be added if they are either
 -under 100mb in size
--under 32000 Characters long when converted to html
+-under 96000 Characters long when converted to html
 
 Otherwise we just link to original file on SharePoint
 
@@ -156,7 +156,7 @@ Files that **don't have an extension**, we'll attempt to decode these as UTF-8
 Files that aren't traditional documents will have a page generated for them with your chosen links. Here's what an image in sharepoint will look like after adding to Hudu: 
 <img width="1184" height="1078" alt="image" src="https://github.com/user-attachments/assets/6a8fc563-49ee-4ed6-b17a-b35c78cc42f1" />
 
-### If a file is too large after conversion (longer than 32000 characters or 100mb)
+### If a file is too large after conversion (longer than 96000 characters or 100mb)
 if this condition is met, the original is uploaded in Hudu and Linked
  <img width="849" height="363" alt="image" src="https://github.com/user-attachments/assets/4354122b-2f97-41ce-b64e-9e0c6262072e" />
 

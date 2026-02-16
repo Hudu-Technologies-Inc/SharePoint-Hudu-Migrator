@@ -4,7 +4,7 @@ $workdir = $PSScriptRoot
 ##
 #
 # 1.1 Hudu Set-up
-$HUDU_MAX_DOCSIZE= 32000
+$HUDU_MAX_DOCSIZE= 96000
 $HuduBaseUrl= $HuduBaseURL ?? $(read-host "enter hudu URL")
 $HuduApiKey= $HuduApiKey ?? $(read-host "enter api key")
 

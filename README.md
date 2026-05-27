@@ -6,7 +6,7 @@ If you are working from a single mapped SharePoint drive rather than multiple Sh
 
 ### Prerequisites
 
-- Hudu Instance of 2.37.1 or newer
+- Hudu Instance of 2.42.0 or newer
 - Companies created in Hudu if you want to attribute sharepoint items to companies
 - Hudu API Key
 - SharePoint / Sites with Files

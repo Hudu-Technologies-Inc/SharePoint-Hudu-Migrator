@@ -16,3 +16,4 @@ filearray.reference
 jsondump*
 jsondump/*
 plan.notes
+out/*

@@ -1,3 +1,7 @@
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'sharepoint\manifests.ps1')) {
+    . (Join-Path $PSScriptRoot 'sharepoint\manifests.ps1')
+}
+
 function Download-GraphDriveItemsRecursively {
     param (
         [string]$siteId,

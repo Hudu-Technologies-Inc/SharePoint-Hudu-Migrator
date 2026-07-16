@@ -42,69 +42,514 @@ function Get-SharePointManifestSlug {
     }) -join '-')
 }
 
-function Get-DefaultSharePointManifestGeneratorPath {
-    [CmdletBinding()]
-    param()
-
-    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $candidatePaths = @(
-        (Join-Path -Path $repoRoot -ChildPath 'dump-manifest.ps1'),
-        (Join-Path -Path $repoRoot -ChildPath 'sharepoint-manifest-generator.ps1'),
-        (Join-Path -Path $repoRoot -ChildPath 'helpers\sharepoint\dump-manifest.ps1'),
-        (Join-Path -Path $repoRoot -ChildPath 'helpers\sharepoint\generate-manifest.ps1'),
-        (Join-Path -Path $repoRoot -ChildPath 'helpers\sharepoint\generate-manifests.ps1'),
-        (Join-Path -Path $repoRoot -ChildPath 'One-Offs\dump-sharepoint-manifest.ps1\dump-manifest.ps1')
+function Get-SharePointManifestHttpStatusCode {
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
     )
 
-    foreach ($candidatePath in $candidatePaths) {
-        if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
-            return [System.IO.Path]::GetFullPath($candidatePath)
-        }
+    try {
+        return [int]$ErrorRecord.Exception.Response.StatusCode
     }
-
-    return $candidatePaths[0]
+    catch {
+        return $null
+    }
 }
 
-function Resolve-SharePointManifestGeneratorPath {
+function New-SharePointManifestError {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Uri,
+
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    [ordered]@{
+        uri        = $Uri
+        statusCode = Get-SharePointManifestHttpStatusCode -ErrorRecord $ErrorRecord
+        message    = $ErrorRecord.Exception.Message
+    }
+}
+
+function Invoke-SharePointManifestPagedRequest {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$GeneratorPath
+        [string]$Uri,
+
+        [Parameter(Mandatory)]
+        [hashtable]$Headers,
+
+        [ValidateRange(0, 20)]
+        [int]$MaxRetries = 6,
+
+        [string]$StatusLabel,
+
+        [ValidateRange(1, 1000)]
+        [int]$StatusPageInterval = 10
     )
 
-    if ([System.IO.Path]::IsPathRooted($GeneratorPath)) {
-        if (Test-Path -LiteralPath $GeneratorPath -PathType Leaf) {
-            return [System.IO.Path]::GetFullPath($GeneratorPath)
+    $items     = [System.Collections.Generic.List[object]]::new()
+    $nextUri   = $Uri
+    $deltaLink = $null
+    $pageCount = 0
+
+    while ($nextUri) {
+        $attempt = 0
+
+        while ($true) {
+            try {
+                $response = Invoke-RestMethod `
+                    -Method Get `
+                    -Uri $nextUri `
+                    -Headers $Headers `
+                    -ErrorAction Stop
+
+                break
+            }
+            catch {
+                $statusCode = Get-SharePointManifestHttpStatusCode -ErrorRecord $_
+                $isTransient = $statusCode -in @(429, 502, 503, 504)
+
+                if (-not $isTransient -or $attempt -ge $MaxRetries) {
+                    throw
+                }
+
+                $delaySeconds = [math]::Min(60, [math]::Pow(2, $attempt + 1))
+
+                Write-Warning (
+                    "Request returned HTTP {0}. Retrying in {1} seconds: {2}" -f
+                    $statusCode,
+                    $delaySeconds,
+                    $nextUri
+                )
+
+                Start-Sleep -Seconds $delaySeconds
+                $attempt++
+            }
         }
 
-        throw "SharePoint manifest generator not found: $GeneratorPath"
-    }
+        if ($null -ne $response.value) {
+            foreach ($item in $response.value) {
+                $items.Add($item)
+            }
+        }
+        else {
+            $items.Add($response)
+        }
 
-    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $candidatePaths = [System.Collections.Generic.List[string]]::new()
-    $candidatePaths.Add((Join-Path -Path $PWD -ChildPath $GeneratorPath))
-    $candidatePaths.Add((Join-Path -Path $repoRoot -ChildPath $GeneratorPath))
-    $candidatePaths.Add((Join-Path -Path $PSScriptRoot -ChildPath $GeneratorPath))
+        if ($response.'@odata.deltaLink') {
+            $deltaLink = $response.'@odata.deltaLink'
+        }
 
-    if ([System.IO.Path]::GetExtension($GeneratorPath) -eq '') {
-        foreach ($extension in @('.ps1', '.psm1')) {
-            $candidatePaths.Add((Join-Path -Path $PWD -ChildPath "$GeneratorPath$extension"))
-            $candidatePaths.Add((Join-Path -Path $repoRoot -ChildPath "$GeneratorPath$extension"))
-            $candidatePaths.Add((Join-Path -Path $PSScriptRoot -ChildPath "$GeneratorPath$extension"))
+        $pageCount++
+        $nextUri = $response.'@odata.nextLink'
+
+        if (
+            -not [string]::IsNullOrWhiteSpace($StatusLabel) -and
+            (
+                $pageCount -eq 1 -or
+                $pageCount % $StatusPageInterval -eq 0 -or
+                -not $nextUri
+            )
+        ) {
+            $statusSuffix = if ($nextUri) { 'continuing' } else { 'done' }
+
+            Write-Host (
+                "{0}: page {1}, {2} item(s) so far, {3}" -f
+                $StatusLabel,
+                $pageCount,
+                $items.Count,
+                $statusSuffix
+            ) -ForegroundColor DarkCyan
         }
     }
 
-    foreach ($candidatePath in $candidatePaths) {
-        if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
-            return [System.IO.Path]::GetFullPath($candidatePath)
-        }
+    [pscustomobject]@{
+        Items     = $items.ToArray()
+        DeltaLink = $deltaLink
     }
+}
 
-    throw (
-        "SharePoint manifest generator not found: {0}. Checked: {1}" -f
-        $GeneratorPath,
-        (@($candidatePaths) -join '; ')
+function Resolve-SharePointManifestOutputPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$OutputPath
     )
+
+    if ([System.IO.Path]::IsPathRooted($OutputPath)) {
+        return [System.IO.Path]::GetFullPath($OutputPath)
+    }
+
+    [System.IO.Path]::GetFullPath((Join-Path -Path $PWD -ChildPath $OutputPath))
+}
+
+function Export-SharePointMetadataManifest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Headers,
+
+        [ValidateSet('Graph', 'SharePointV2')]
+        [string]$ApiMode = 'Graph',
+
+        [string]$TenantName,
+
+        [ValidateSet('All', 'Sites', 'Drives', 'Lists')]
+        [string[]]$ManifestType = @('All'),
+
+        [Parameter(Mandatory)]
+        [string]$OutputPath,
+
+        [switch]$IncludeDocumentLibraryListItems,
+
+        [switch]$ListMetadataOnly
+    )
+
+    if ($null -eq $Headers -or -not $Headers.ContainsKey('Authorization')) {
+        throw 'Generating SharePoint manifests requires headers with an Authorization value.'
+    }
+
+    if ($ApiMode -eq 'SharePointV2' -and [string]::IsNullOrWhiteSpace($TenantName)) {
+        throw '-TenantName is required when -ApiMode is SharePointV2.'
+    }
+
+    $graphBase      = 'https://graph.microsoft.com/v1.0'
+    $requestedTypes = @($ManifestType | Select-Object -Unique)
+    $includeAll     = $requestedTypes -contains 'All'
+    $includeDrives  = $includeAll -or ($requestedTypes -contains 'Drives')
+    $includeLists   = $includeAll -or ($requestedTypes -contains 'Lists')
+    $resolvedTypes  = if ($includeAll) {
+        @('Sites', 'Drives', 'Lists')
+    }
+    else {
+        @($requestedTypes | Where-Object { $_ -ne 'All' })
+    }
+
+    $manifest = [ordered]@{
+        schemaVersion  = '1.0'
+        generatedAtUtc = [datetime]::UtcNow.ToString('o')
+        apiMode        = $ApiMode
+        manifestTypes  = $resolvedTypes
+        options        = [ordered]@{
+            includeDriveItems               = $includeDrives
+            includeListSchema               = $includeLists
+            includeListItems                = ($includeLists -and -not $ListMetadataOnly)
+            includeDocumentLibraryListItems = [bool]$IncludeDocumentLibraryListItems
+        }
+        discovery = $null
+        counts    = [ordered]@{
+            sites        = 0
+            drives       = 0
+            driveItems   = 0
+            lists        = 0
+            listItems    = 0
+            skippedLists = 0
+            errors       = 0
+        }
+        sites     = [System.Collections.Generic.List[object]]::new()
+        errors    = [System.Collections.Generic.List[object]]::new()
+    }
+
+    Write-Host "Discovering SharePoint sites..." -ForegroundColor Cyan
+
+    if ($ApiMode -eq 'Graph') {
+        $siteDiscoveryUri = "$graphBase/sites/getAllSites"
+
+        try {
+            $siteResponse = Invoke-SharePointManifestPagedRequest `
+                -Uri $siteDiscoveryUri `
+                -Headers $Headers `
+                -StatusLabel 'Site discovery'
+
+            $manifest.discovery = [ordered]@{
+                method = 'getAllSites'
+                uri    = $siteDiscoveryUri
+            }
+        }
+        catch {
+            $statusCode = Get-SharePointManifestHttpStatusCode -ErrorRecord $_
+
+            if ($statusCode -notin @(400, 403)) {
+                throw
+            }
+
+            $siteDiscoveryUri = "$graphBase/sites?search=%2A"
+            Write-Host "Falling back to delegated site search." -ForegroundColor Yellow
+
+            $siteResponse = Invoke-SharePointManifestPagedRequest `
+                -Uri $siteDiscoveryUri `
+                -Headers $Headers `
+                -StatusLabel 'Site discovery fallback'
+
+            $manifest.discovery = [ordered]@{
+                method = 'search=* fallback'
+                uri    = $siteDiscoveryUri
+            }
+        }
+    }
+    else {
+        $sharePointBase  = 'https://{0}.sharepoint.com/_api/v2.0' -f $TenantName
+        $siteDiscoveryUri = "$sharePointBase/sites"
+
+        $siteResponse = Invoke-SharePointManifestPagedRequest `
+            -Uri $siteDiscoveryUri `
+            -Headers $Headers `
+            -StatusLabel 'Site discovery'
+
+        $manifest.discovery = [ordered]@{
+            method = 'SharePoint REST v2 sites'
+            uri    = $siteDiscoveryUri
+        }
+    }
+
+    $totalSites = @($siteResponse.Items).Count
+    Write-Host "Discovered $totalSites site(s)." -ForegroundColor Cyan
+    $siteIndex = 0
+
+    foreach ($site in $siteResponse.Items) {
+        $siteIndex++
+        $manifest.counts.sites++
+
+        $siteLabel = $site.displayName ?? $site.name ?? $site.webUrl ?? $site.id
+        Write-Host "Site $siteIndex/$totalSites`: $siteLabel" -ForegroundColor Cyan
+
+        $siteEntry = [ordered]@{
+            metadata = $site
+            drives   = [System.Collections.Generic.List[object]]::new()
+            lists    = [System.Collections.Generic.List[object]]::new()
+            errors   = [System.Collections.Generic.List[object]]::new()
+        }
+
+        if ($ApiMode -eq 'Graph') {
+            $siteApiBase  = "$graphBase/sites/$($site.id)"
+            $driveApiBase = $graphBase
+        }
+        else {
+            if ([string]::IsNullOrWhiteSpace($site.webUrl)) {
+                $siteEntry.errors.Add([ordered]@{
+                    uri        = $siteDiscoveryUri
+                    statusCode = $null
+                    message    = 'The site response did not contain webUrl.'
+                })
+                $manifest.counts.errors++
+                $manifest.sites.Add($siteEntry)
+                continue
+            }
+
+            $siteWebUrl   = $site.webUrl.TrimEnd('/')
+            $siteApiBase  = "$siteWebUrl/_api/v2.0"
+            $driveApiBase = $siteApiBase
+        }
+
+        if ($includeDrives) {
+            $drivesUri = "$siteApiBase/drives"
+
+            try {
+                $driveResponse = Invoke-SharePointManifestPagedRequest `
+                    -Uri $drivesUri `
+                    -Headers $Headers `
+                    -StatusLabel "Drives for $siteLabel"
+
+                $totalDrives = @($driveResponse.Items).Count
+                $driveIndex = 0
+
+                foreach ($drive in $driveResponse.Items) {
+                    $driveIndex++
+                    $manifest.counts.drives++
+                    $driveLabel = $drive.name ?? $drive.id
+
+                    Write-Host "  Drive $driveIndex/$totalDrives`: $driveLabel" -ForegroundColor DarkCyan
+
+                    $driveEntry = [ordered]@{
+                        metadata  = $drive
+                        items     = @()
+                        deltaLink = $null
+                        error     = $null
+                    }
+
+                    $driveItemsUri = "$driveApiBase/drives/$($drive.id)/root/delta"
+
+                    try {
+                        $driveItemsResponse = Invoke-SharePointManifestPagedRequest `
+                            -Uri $driveItemsUri `
+                            -Headers $Headers `
+                            -StatusLabel "Drive metadata for $driveLabel"
+
+                        $driveEntry.items     = $driveItemsResponse.Items
+                        $driveEntry.deltaLink = $driveItemsResponse.DeltaLink
+                        $manifest.counts.driveItems += $driveItemsResponse.Items.Count
+                    }
+                    catch {
+                        $driveEntry.error = New-SharePointManifestError `
+                            -Uri $driveItemsUri `
+                            -ErrorRecord $_
+
+                        $manifest.counts.errors++
+                    }
+
+                    $siteEntry.drives.Add($driveEntry)
+                }
+            }
+            catch {
+                $siteEntry.errors.Add(
+                    (New-SharePointManifestError -Uri $drivesUri -ErrorRecord $_)
+                )
+                $manifest.counts.errors++
+            }
+        }
+
+        if ($includeLists) {
+            $listSelect = @(
+                'id'
+                'name'
+                'displayName'
+                'description'
+                'webUrl'
+                'createdDateTime'
+                'lastModifiedDateTime'
+                'list'
+                'system'
+                'sharepointIds'
+            ) -join ','
+
+            $listsUri = "$siteApiBase/lists?`$select=$listSelect"
+
+            try {
+                $listResponse = Invoke-SharePointManifestPagedRequest `
+                    -Uri $listsUri `
+                    -Headers $Headers `
+                    -StatusLabel "Lists for $siteLabel"
+
+                $totalLists = @($listResponse.Items).Count
+                $listIndex = 0
+
+                foreach ($list in $listResponse.Items) {
+                    $listIndex++
+                    $manifest.counts.lists++
+                    $listLabel = $list.displayName ?? $list.name ?? $list.id
+
+                    Write-Host "  List $listIndex/$totalLists`: $listLabel" -ForegroundColor DarkCyan
+
+                    $isDocumentLibrary = $list.list.template -eq 'documentLibrary'
+                    $skipItems = (
+                        $ListMetadataOnly -or
+                        ($isDocumentLibrary -and -not $IncludeDocumentLibraryListItems)
+                    )
+
+                    $listEntry = [ordered]@{
+                        metadata               = $list
+                        columns                = @()
+                        contentTypes           = @()
+                        items                  = @()
+                        itemEnumerationSkipped = $skipItems
+                        skipReason             = $null
+                        errors                 = [System.Collections.Generic.List[object]]::new()
+                    }
+
+                    $listColumnsUri = "$siteApiBase/lists/$($list.id)/columns"
+                    try {
+                        $listEntry.columns = (
+                            Invoke-SharePointManifestPagedRequest `
+                                -Uri $listColumnsUri `
+                                -Headers $Headers
+                        ).Items
+                    }
+                    catch {
+                        $listEntry.errors.Add(
+                            (New-SharePointManifestError -Uri $listColumnsUri -ErrorRecord $_)
+                        )
+                        $manifest.counts.errors++
+                    }
+
+                    $listContentTypesUri = "$siteApiBase/lists/$($list.id)/contentTypes"
+                    try {
+                        $listEntry.contentTypes = (
+                            Invoke-SharePointManifestPagedRequest `
+                                -Uri $listContentTypesUri `
+                                -Headers $Headers
+                        ).Items
+                    }
+                    catch {
+                        $listEntry.errors.Add(
+                            (New-SharePointManifestError -Uri $listContentTypesUri -ErrorRecord $_)
+                        )
+                        $manifest.counts.errors++
+                    }
+
+                    if ($skipItems) {
+                        $listEntry.skipReason = if ($ListMetadataOnly) {
+                            'List item enumeration was not requested.'
+                        }
+                        else {
+                            'Document library list items are skipped by default because file metadata is normally captured by the drive manifest.'
+                        }
+
+                        $manifest.counts.skippedLists++
+                        $siteEntry.lists.Add($listEntry)
+                        continue
+                    }
+
+                    $listItemsUri = "$siteApiBase/lists/$($list.id)/items?`$expand=fields"
+                    try {
+                        $listItemsResponse = Invoke-SharePointManifestPagedRequest `
+                            -Uri $listItemsUri `
+                            -Headers $Headers `
+                            -StatusLabel "Item fields for $listLabel"
+
+                        $listEntry.items = $listItemsResponse.Items
+                        $manifest.counts.listItems += $listItemsResponse.Items.Count
+                    }
+                    catch {
+                        $listEntry.errors.Add(
+                            (New-SharePointManifestError -Uri $listItemsUri -ErrorRecord $_)
+                        )
+                        $manifest.counts.errors++
+                    }
+
+                    $siteEntry.lists.Add($listEntry)
+                }
+            }
+            catch {
+                $siteEntry.errors.Add(
+                    (New-SharePointManifestError -Uri $listsUri -ErrorRecord $_)
+                )
+                $manifest.counts.errors++
+            }
+        }
+
+        $manifest.sites.Add($siteEntry)
+    }
+
+    $fullOutputPath = Resolve-SharePointManifestOutputPath -OutputPath $OutputPath
+    $outputDirectory = Split-Path -Parent $fullOutputPath
+
+    if (-not (Test-Path -LiteralPath $outputDirectory)) {
+        $null = New-Item -ItemType Directory -Path $outputDirectory -Force
+    }
+
+    Write-Host "Writing SharePoint manifest: $fullOutputPath" -ForegroundColor Cyan
+
+    [System.IO.File]::WriteAllText(
+        $fullOutputPath,
+        ($manifest | ConvertTo-Json -Depth 100),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+
+    [pscustomobject]@{
+        Path          = $fullOutputPath
+        ApiMode       = $ApiMode
+        ManifestTypes = $resolvedTypes
+        Generated     = $manifest.generatedAtUtc
+        Sites         = $manifest.counts.sites
+        Drives        = $manifest.counts.drives
+        DriveItems    = $manifest.counts.driveItems
+        Lists         = $manifest.counts.lists
+        ListItems     = $manifest.counts.listItems
+        Errors        = $manifest.counts.errors
+    }
 }
 
 function Import-SharePointManifestJson {
@@ -185,7 +630,7 @@ function Initialize-SharePointManifestSet {
         [string]$ManifestDir = (Join-Path $PWD 'out\sharepoint-manifests'),
 
         [Alias('SharePointManifestSet', 'ManifestGeneratorPath')]
-        [string]$GeneratorPath = (Get-DefaultSharePointManifestGeneratorPath),
+        [string]$GeneratorPath,
 
         [switch]$IncludeDocumentLibraryListItems,
 
@@ -218,11 +663,14 @@ function Initialize-SharePointManifestSet {
             throw 'Generating SharePoint manifests requires headers with an Authorization value.'
         }
 
-        $GeneratorPath = Resolve-SharePointManifestGeneratorPath `
-            -GeneratorPath $GeneratorPath
-
         Write-Host "Generating SharePoint manifest: $manifestPath" -ForegroundColor Cyan
-        Write-Host "Using manifest generator: $GeneratorPath" -ForegroundColor Cyan
+
+        if (-not [string]::IsNullOrWhiteSpace($GeneratorPath)) {
+            Write-Warning (
+                '-GeneratorPath/-SharePointManifestSet is ignored. ' +
+                'Manifest generation is now handled by Export-SharePointMetadataManifest.'
+            )
+        }
 
         $generatorParams = @{
             Headers                         = $Headers
@@ -237,21 +685,11 @@ function Initialize-SharePointManifestSet {
             $generatorParams.TenantName = $TenantName
         }
 
-        $generatorResult = & $GeneratorPath @generatorParams
+        $generatorResult = Export-SharePointMetadataManifest @generatorParams
         $generatorResult | Out-Host
 
-        # Follow the generator's reported path. This matters when the writer
-        # falls back from an unwritable target, such as C:\Windows\system32.
-        $writtenManifest = @($generatorResult |
-            Where-Object {
-                $null -ne $_ -and
-                $_.PSObject.Properties.Name -contains 'Path' -and
-                -not [string]::IsNullOrWhiteSpace($_.Path)
-            } |
-            Select-Object -Last 1)
-
-        if ($writtenManifest) {
-            $manifestPath = [System.IO.Path]::GetFullPath($writtenManifest.Path)
+        if (-not [string]::IsNullOrWhiteSpace($generatorResult.Path)) {
+            $manifestPath = [System.IO.Path]::GetFullPath($generatorResult.Path)
         }
     }
     else {

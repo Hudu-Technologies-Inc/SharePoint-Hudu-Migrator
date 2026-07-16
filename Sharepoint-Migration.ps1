@@ -46,7 +46,10 @@ $tokenResult = $tokenResult ?? $(Get-MsalToken -ClientId $clientId -TenantId $te
 $accessToken = $accessToken ?? $tokenResult.AccessToken
 $SharePointHeaders = @{ Authorization = "Bearer $accessToken" }
 
-$manifestSet = Initialize-SharePointManifestSet -ManifestMode Auto -ManifestDir ".\out\sharepoint-manifests" -Headers $SharePointHeaders -GeneratorPath .\dump-manifest.ps1
+$manifestSet = Initialize-SharePointManifestSet `
+    -ManifestMode Auto `
+    -ManifestDir ".\out\sharepoint-manifests" `
+    -Headers $SharePointHeaders
 
 $workItems = @(ConvertFrom-SharePointManifestSet -ManifestSet $manifestSet)
 

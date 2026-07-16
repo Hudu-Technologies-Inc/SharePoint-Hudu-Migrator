@@ -12,6 +12,7 @@ param(
 
     [string]$ManifestDir = (Join-Path $PSScriptRoot 'out\sharepoint-manifests'),
 
+    [Alias('SharePointManifestSet', 'ManifestGeneratorPath')]
     [string]$GeneratorPath,
 
     [string]$WorkQueuePath,

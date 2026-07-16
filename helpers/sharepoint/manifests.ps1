@@ -47,17 +47,22 @@ function Get-DefaultSharePointManifestGeneratorPath {
     param()
 
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $repoLocalGenerator = Join-Path `
-        -Path $repoRoot `
-        -ChildPath 'dump-manifest.ps1'
+    $candidatePaths = @(
+        (Join-Path -Path $repoRoot -ChildPath 'dump-manifest.ps1'),
+        (Join-Path -Path $repoRoot -ChildPath 'sharepoint-manifest-generator.ps1'),
+        (Join-Path -Path $repoRoot -ChildPath 'helpers\sharepoint\dump-manifest.ps1'),
+        (Join-Path -Path $repoRoot -ChildPath 'helpers\sharepoint\generate-manifest.ps1'),
+        (Join-Path -Path $repoRoot -ChildPath 'helpers\sharepoint\generate-manifests.ps1'),
+        (Join-Path -Path $repoRoot -ChildPath 'One-Offs\dump-sharepoint-manifest.ps1\dump-manifest.ps1')
+    )
 
-    if (Test-Path -LiteralPath $repoLocalGenerator -PathType Leaf) {
-        return $repoLocalGenerator
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidatePath)
+        }
     }
 
-    Join-Path `
-        -Path $repoRoot `
-        -ChildPath 'One-Offs\dump-sharepoint-manifest.ps1\dump-manifest.ps1'
+    return $candidatePaths[0]
 }
 
 function Resolve-SharePointManifestGeneratorPath {
@@ -76,11 +81,18 @@ function Resolve-SharePointManifestGeneratorPath {
     }
 
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $candidatePaths = @(
-        (Join-Path -Path $PWD -ChildPath $GeneratorPath),
-        (Join-Path -Path $repoRoot -ChildPath $GeneratorPath),
-        (Join-Path -Path $PSScriptRoot -ChildPath $GeneratorPath)
-    )
+    $candidatePaths = [System.Collections.Generic.List[string]]::new()
+    $candidatePaths.Add((Join-Path -Path $PWD -ChildPath $GeneratorPath))
+    $candidatePaths.Add((Join-Path -Path $repoRoot -ChildPath $GeneratorPath))
+    $candidatePaths.Add((Join-Path -Path $PSScriptRoot -ChildPath $GeneratorPath))
+
+    if ([System.IO.Path]::GetExtension($GeneratorPath) -eq '') {
+        foreach ($extension in @('.ps1', '.psm1')) {
+            $candidatePaths.Add((Join-Path -Path $PWD -ChildPath "$GeneratorPath$extension"))
+            $candidatePaths.Add((Join-Path -Path $repoRoot -ChildPath "$GeneratorPath$extension"))
+            $candidatePaths.Add((Join-Path -Path $PSScriptRoot -ChildPath "$GeneratorPath$extension"))
+        }
+    }
 
     foreach ($candidatePath in $candidatePaths) {
         if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
@@ -91,7 +103,7 @@ function Resolve-SharePointManifestGeneratorPath {
     throw (
         "SharePoint manifest generator not found: {0}. Checked: {1}" -f
         $GeneratorPath,
-        ($candidatePaths -join '; ')
+        (@($candidatePaths) -join '; ')
     )
 }
 
@@ -172,6 +184,7 @@ function Initialize-SharePointManifestSet {
 
         [string]$ManifestDir = (Join-Path $PWD 'out\sharepoint-manifests'),
 
+        [Alias('SharePointManifestSet', 'ManifestGeneratorPath')]
         [string]$GeneratorPath = (Get-DefaultSharePointManifestGeneratorPath),
 
         [switch]$IncludeDocumentLibraryListItems,

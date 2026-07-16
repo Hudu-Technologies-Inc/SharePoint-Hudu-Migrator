@@ -47,10 +47,52 @@ function Get-DefaultSharePointManifestGeneratorPath {
     param()
 
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $repoLocalGenerator = Join-Path `
+        -Path $repoRoot `
+        -ChildPath 'dump-manifest.ps1'
+
+    if (Test-Path -LiteralPath $repoLocalGenerator -PathType Leaf) {
+        return $repoLocalGenerator
+    }
 
     Join-Path `
         -Path $repoRoot `
         -ChildPath 'One-Offs\dump-sharepoint-manifest.ps1\dump-manifest.ps1'
+}
+
+function Resolve-SharePointManifestGeneratorPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$GeneratorPath
+    )
+
+    if ([System.IO.Path]::IsPathRooted($GeneratorPath)) {
+        if (Test-Path -LiteralPath $GeneratorPath -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($GeneratorPath)
+        }
+
+        throw "SharePoint manifest generator not found: $GeneratorPath"
+    }
+
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $candidatePaths = @(
+        (Join-Path -Path $PWD -ChildPath $GeneratorPath),
+        (Join-Path -Path $repoRoot -ChildPath $GeneratorPath),
+        (Join-Path -Path $PSScriptRoot -ChildPath $GeneratorPath)
+    )
+
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidatePath)
+        }
+    }
+
+    throw (
+        "SharePoint manifest generator not found: {0}. Checked: {1}" -f
+        $GeneratorPath,
+        ($candidatePaths -join '; ')
+    )
 }
 
 function Import-SharePointManifestJson {
@@ -163,11 +205,11 @@ function Initialize-SharePointManifestSet {
             throw 'Generating SharePoint manifests requires headers with an Authorization value.'
         }
 
-        if (-not (Test-Path -LiteralPath $GeneratorPath -PathType Leaf)) {
-            throw "SharePoint manifest generator not found: $GeneratorPath"
-        }
+        $GeneratorPath = Resolve-SharePointManifestGeneratorPath `
+            -GeneratorPath $GeneratorPath
 
         Write-Host "Generating SharePoint manifest: $manifestPath" -ForegroundColor Cyan
+        Write-Host "Using manifest generator: $GeneratorPath" -ForegroundColor Cyan
 
         $generatorParams = @{
             Headers                         = $Headers
@@ -183,16 +225,22 @@ function Initialize-SharePointManifestSet {
         }
 
         $generatorResult = & $GeneratorPath @generatorParams
-            $generatorResult | Out-Host
+        $generatorResult | Out-Host
 
-            $writtenManifestPath = @($generatorResult |
-                Where-Object { $_.PSObject.Properties.Name -contains 'Path' } |
-                Select-Object -Last 1).Path
+        # Follow the generator's reported path. This matters when the writer
+        # falls back from an unwritable target, such as C:\Windows\system32.
+        $writtenManifest = @($generatorResult |
+            Where-Object {
+                $null -ne $_ -and
+                $_.PSObject.Properties.Name -contains 'Path' -and
+                -not [string]::IsNullOrWhiteSpace($_.Path)
+            } |
+            Select-Object -Last 1)
 
-            if (-not [string]::IsNullOrWhiteSpace($writtenManifestPath)) {
-                $manifestPath = $writtenManifestPath
-            }
+        if ($writtenManifest) {
+            $manifestPath = [System.IO.Path]::GetFullPath($writtenManifest.Path)
         }
+    }
     else {
         Write-Host "Using cached SharePoint manifest: $manifestPath" -ForegroundColor Cyan
     }

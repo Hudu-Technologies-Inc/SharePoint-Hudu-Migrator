@@ -12,6 +12,8 @@ param(
 
     [string]$ManifestDir = (Join-Path $PSScriptRoot 'out\sharepoint-manifests'),
 
+    [string]$GeneratorPath,
+
     [string]$WorkQueuePath,
 
     [switch]$IncludeDocumentLibraryListItems,
@@ -37,6 +39,10 @@ $manifestSetParams = @{
     IncludeDocumentLibraryListItems = $IncludeDocumentLibraryListItems
     ListMetadataOnly                = $ListMetadataOnly
     Force                           = $Force
+}
+
+if (-not [string]::IsNullOrWhiteSpace($GeneratorPath)) {
+    $manifestSetParams.GeneratorPath = $GeneratorPath
 }
 
 $manifestSet = Initialize-SharePointManifestSet @manifestSetParams

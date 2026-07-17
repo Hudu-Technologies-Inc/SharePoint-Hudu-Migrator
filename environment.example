@@ -21,4 +21,12 @@ $huduapikey = ""
 # them. Article names keep the .pdf extension for post-run is_upload updates.
 # $SharePointPdfUploadAsFile = $true
 
+# Optional: build and use a fuzzy SharePoint client-list to Hudu company map.
+# Defaults shown here.
+# $SharePointClientAttributionEnabled = $true
+# $SharePointClientAttributionAutoApply = $true
+# $SharePointClientAttributionListNames = @("Client List")
+# $SharePointClientAttributionMinScore = 95
+# $SharePointClientAttributionMinGap = 5
+
 . .\Sharepoint-Migration.ps1

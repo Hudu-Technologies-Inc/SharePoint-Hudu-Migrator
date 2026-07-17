@@ -90,6 +90,23 @@ function Get-IndexOnlyCompanyId {
         0 { return $SingleCompanyChoice.id }
         1 { return $null }
         default {
+            $sourceText = @(
+                $RelativeFolderPath
+                @($Files | Select-Object -First 5 | ForEach-Object { $_.SiteName })
+                @($Files | Select-Object -First 5 | ForEach-Object { $_.RelativePath })
+                @($Files | Select-Object -First 5 | ForEach-Object { $_.Name })
+            ) -join ' '
+            $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
+                Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $sourceText -AttributionMap $ClientAttributionMap -AutoOnly
+            } else {
+                $null
+            }
+
+            if ($attributionMatch) {
+                Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to '$($attributionMatch.Entry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Entry.Confidence)%)." -Color Cyan
+                return $attributionMatch.Entry.HuduCompanyId
+            }
+
             $sample = @($Files | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ", "
             return (
                 Select-ObjectFromList `

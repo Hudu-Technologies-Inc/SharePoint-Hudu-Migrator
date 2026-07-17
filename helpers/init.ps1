@@ -53,6 +53,8 @@ $RunSummary=@{
         SelectedFiles    =   "$(join-path $logsFolder -ChildPath "files.json")"
         SelectedFolders  =   "$(join-path $logsFolder -ChildPath "folders.json")"
         ConvertedFiles   =   "$(join-path $logsFolder -ChildPath "converted.json")"
+        ClientAttributionMap = "$(join-path $logsFolder -ChildPath "client-attribution-map.json")"
+        ClientAttributionReview = "$(join-path $logsFolder -ChildPath "client-attribution-review.csv")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
     }
     SetupInfo=@{
@@ -68,6 +70,17 @@ $RunSummary=@{
         PreviewLength       = 2500
         LowDiskMode         = [bool]($SharePointLowDiskMode ?? $false)
         PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
+        ClientAttributionEnabled = [bool]($SharePointClientAttributionEnabled ?? $true)
+        ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)
+        ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)
+        ClientAttributionMinGap = [int]($SharePointClientAttributionMinGap ?? 5)
+        ClientAttributionListNames = @(
+            if ($null -ne $SharePointClientAttributionListNames) {
+                @($SharePointClientAttributionListNames)
+            } else {
+                "Client List"
+            }
+        )
         DisallowedForConvert = [System.Collections.ArrayList]@(
             ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a",
             ".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj",

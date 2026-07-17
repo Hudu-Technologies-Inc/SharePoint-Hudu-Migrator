@@ -13,11 +13,29 @@ foreach ($doc in $docsToStub) {
         0 { $doc.CompanyId = $SingleCompanyChoice.id }
         1 { $doc.CompanyId = $null }
         default {
-            $doc.CompanyId = (
-                Select-ObjectFromList `
-                    -message "Migrating Article: $($doc.ContentPreview ?? "no preview")... Which company to migrate into?" `
-                    -objects $Attribution_Options
-            ).CompanyId
+            $sourceText = @(
+                $doc.SiteName
+                $doc.RelativePath
+                $doc.LocalPath
+                $doc.title
+            ) -join ' '
+            $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
+                Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $sourceText -AttributionMap $ClientAttributionMap -AutoOnly
+            } else {
+                $null
+            }
+
+            if ($attributionMatch) {
+                $doc.CompanyId = $attributionMatch.Entry.HuduCompanyId
+                $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $attributionMatch.Entry -Force
+                Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to '$($attributionMatch.Entry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Entry.Confidence)%)." -Color Cyan
+            } else {
+                $doc.CompanyId = (
+                    Select-ObjectFromList `
+                        -message "Migrating Article: $($doc.ContentPreview ?? "no preview")... Which company to migrate into?" `
+                        -objects $Attribution_Options
+                ).CompanyId
+            }
         }
     }
 

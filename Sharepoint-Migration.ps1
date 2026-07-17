@@ -29,6 +29,7 @@ $allSites = @()
 $AllCompanies = @()
 $SingleCompanyChoice=@{}
 $StubbedArticles=@()
+$ClientAttributionMap=@()
 
 foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort-Object Name)) {
     Write-Host "Importing: $($file.Name)" -ForegroundColor DarkBlue
@@ -76,6 +77,9 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1
+
+# 2.3 Build optional client attribution map
+. .\jobs\Build-ClientAttributionMap.ps1
 
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##

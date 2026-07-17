@@ -14,7 +14,7 @@ function Relink-DocumentUploads {
         $uploadedPath   = "$htmlPath-uploaded.json"
         $attachmentsPath = "$htmlPath-attachments.json"
         # Load data
-        $uploadedInfo = $doc.UploadedFiles
+        $uploadedInfo = @($doc.UploadedFiles)
         $foundLinks   = Get-LinksFromHTML -htmlContent $doc.ReplacedContent -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $true
         $attachments  = $doc.AllAttachments
         $webViewUrl = $doc.webViewUrl
@@ -22,10 +22,17 @@ function Relink-DocumentUploads {
             $webViewUrl = @($doc.OriginalLinks)[0]
         }
 
-        $originalFilename = $uploadedInfo.OriginalFilename
-        $filenameOnly = [System.IO.Path]::GetFileName($originalFilename).ToLowerInvariant()
+        $originalFilename = @($uploadedInfo | Where-Object { $_.OriginalFilename } | Select-Object -First 1).OriginalFilename
+        if (-not $originalFilename) {
+            $originalFilename = $doc.OriginalFilename ?? $doc.LocalPath
+        }
+        $filenameOnly = if ($originalFilename) {
+            [System.IO.Path]::GetFileName($originalFilename).ToLowerInvariant()
+        } else {
+            ""
+        }
 
-        $docAsAttachmentUrl           = $uploadedInfo.url
+        $docAsAttachmentUrl = @($uploadedInfo | Where-Object { $_.url } | Select-Object -First 1).url
         $AttachmentMap = @{}
         foreach ($upload in $doc.UploadedFiles) {
             if (-not $upload.PSObject.Properties['ext']) {
@@ -41,7 +48,7 @@ function Relink-DocumentUploads {
         # Replace all links or filenames matching the original filename, then attachments
             $html = Replace-HuduAttachmentLinkBlock -html $html -sourceFile $doc
             foreach ($link in $foundLinks) {
-                if ($link.ToLowerInvariant() -like "*$filenameOnly*") {
+                if ($filenameOnly -and $docAsAttachmentUrl -and $link.ToLowerInvariant() -like "*$filenameOnly*") {
                     Set-PrintandLog -Message "linking $($link.ToLowerInvariant()) => $docAsAttachmentUrl via $filenameOnly"
                     $html = $html -replace [regex]::Escape($link), $docAsAttachmentUrl
                 }
@@ -53,7 +60,11 @@ function Relink-DocumentUploads {
                     }
                 }
             }
-            $updatedHTML = $html -replace [regex]::Escape($originalFilename), $docAsAttachmentUrl
+            $updatedHTML = if ($originalFilename -and $docAsAttachmentUrl) {
+                $html -replace [regex]::Escape($originalFilename), $docAsAttachmentUrl
+            } else {
+                $html
+            }
             $updatedHTML = Replace-SharePointAttachmentTags -Html $updatedHTML -AttachmentMap $AttachmentMap -HuduBaseUrl $HuduBaseURL
             $updatedHTML = Replace-SharePointLinkBlock -html $updatedHTML -webViewUrl $webViewUrl        
         } else {

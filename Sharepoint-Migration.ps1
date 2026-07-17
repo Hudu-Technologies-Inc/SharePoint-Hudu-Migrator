@@ -92,6 +92,8 @@ function Invoke-SharePointMigrationFileBatch {
         [Parameter(Mandatory)] [array]$Sites,
         [Parameter(Mandatory)] [string]$BatchName,
         [Parameter(Mandatory)] [string]$SofficePath,
+        [array]$Drives,
+        [array]$RootItems,
         [switch]$CleanupAfterBatch
     )
 
@@ -104,6 +106,16 @@ function Invoke-SharePointMigrationFileBatch {
 
     $SourceDataSites = [System.Collections.ArrayList]@()
     [void]$SourceDataSites.AddRange(@($Sites))
+    $SourceDataDrives = $null
+    if ($null -ne $Drives -and $Drives.Count -gt 0) {
+        $SourceDataDrives = [System.Collections.ArrayList]@()
+        [void]$SourceDataDrives.AddRange(@($Drives))
+    }
+    $SourceDataRootItems = $null
+    if ($null -ne $RootItems -and $RootItems.Count -gt 0) {
+        $SourceDataRootItems = [System.Collections.ArrayList]@()
+        [void]$SourceDataRootItems.AddRange(@($RootItems))
+    }
 
     Set-IncrementedState -newState "Download From Selection - $BatchName"
     . .\jobs\Get-SourceData.ps1
@@ -152,15 +164,56 @@ function Invoke-SharePointMigrationFileBatch {
 }
 
 if ($RunSummary.SetupInfo.LowDiskMode) {
-    Set-PrintAndLog -message "Low-disk mode enabled. Processing and cleaning one SharePoint site at a time." -Color Yellow
+    Set-PrintAndLog -message "Low-disk mode enabled. Processing and cleaning one top-level SharePoint drive item at a time." -Color Yellow
     $siteIndex = 0
     foreach ($site in $userSelectedSites) {
         $siteIndex++
-        Invoke-SharePointMigrationFileBatch `
-            -Sites @($site) `
-            -BatchName "site $siteIndex/$($userSelectedSites.Count): $($site.name)" `
-            -SofficePath $sofficePath `
-            -CleanupAfterBatch
+        try {
+            $drives = @(Get-GraphSiteDrives -siteId $site.id)
+        } catch {
+            Set-PrintAndLog -message "Failed to enumerate drives for site $($site.name): $($_.Exception.Message)" -Color Red
+            $RunSummary.Errors.Add(@{
+                Site  = $site.name
+                Error = $_.Exception.Message
+                Step  = "Enumerate site drives"
+            })
+            continue
+        }
+
+        $driveIndex = 0
+
+        foreach ($drive in $drives) {
+            $driveIndex++
+            try {
+                $rootItems = @(Get-GraphDriveChildItems -siteId $site.id -driveId $drive.id -folderId 'root')
+            } catch {
+                Set-PrintAndLog -message "Failed to enumerate root items for drive $($drive.name) in site $($site.name): $($_.Exception.Message)" -Color Red
+                $RunSummary.Errors.Add(@{
+                    Site  = $site.name
+                    Drive = $drive.name
+                    Error = $_.Exception.Message
+                    Step  = "Enumerate drive root items"
+                })
+                continue
+            }
+
+            if ($rootItems.Count -eq 0) {
+                Set-PrintAndLog -message "Skipping empty drive $($drive.name) for site $($site.name)." -Color DarkGray
+                continue
+            }
+
+            $rootItemIndex = 0
+            foreach ($rootItem in $rootItems) {
+                $rootItemIndex++
+                Invoke-SharePointMigrationFileBatch `
+                    -Sites @($site) `
+                    -Drives @($drive) `
+                    -RootItems @($rootItem) `
+                    -BatchName "site $siteIndex/$($userSelectedSites.Count): $($site.name); drive $driveIndex/$($drives.Count): $($drive.name); item $rootItemIndex/$($rootItems.Count): $($rootItem.name)" `
+                    -SofficePath $sofficePath `
+                    -CleanupAfterBatch
+            }
+        }
     }
 } else {
     Invoke-SharePointMigrationFileBatch `

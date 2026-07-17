@@ -141,35 +141,105 @@ function Set-PrintAndLog {
     }
     Add-Content -Path $LogFile -Value $logline
 }
-function Select-ObjectFromList($objects,$message,$allowNull = $false) {
-    $validated=$false
-    while ($validated -eq $false){
-        if ($allowNull -eq $true) {
-            Write-Host "0: None/Custom"
-        }
-        for ($i = 0; $i -lt $objects.Count; $i++) {
-            $object = $objects[$i]
-            if ($null -ne $object.OptionMessage) {
-                Write-Host "$($i+1): $($object.OptionMessage)"
-            } elseif ($null -ne $object.name) {
-                Write-Host "$($i+1): $($object.name)"
-            } else {
-                Write-Host "$($i+1): $($object)"
+function Write-InspectObject {
+    param (
+        [object]$object,
+        [int]$Depth = 32,
+        [int]$MaxLines = 16
+    )
+
+    $stringifiedObject = $null
+
+    if ($null -eq $object) {
+        return "Unreadable Object (null input)"
+    }
+    # Try JSON
+    $stringifiedObject = try {
+        $json = $object | ConvertTo-Json -Depth $Depth -ErrorAction Stop
+        "# Type: $($object.GetType().FullName)`n$json"
+    } catch { $null }
+
+    # Try Format-Table
+    if (-not $stringifiedObject) {
+        $stringifiedObject = try {
+            $object | Format-Table -Force | Out-String
+        } catch { $null }
+    }
+
+    # Try Format-List
+    if (-not $stringifiedObject) {
+        $stringifiedObject = try {
+            $object | Format-List -Force | Out-String
+        } catch { $null }
+    }
+
+    # Fallback to manual property dump
+    if (-not $stringifiedObject) {
+        $stringifiedObject = try {
+            $props = $object | Get-Member -MemberType Properties | Select-Object -ExpandProperty Name
+            $lines = foreach ($p in $props) {
+                try {
+                    "$p = $($object.$p)"
+                } catch {
+                    "$p = <unreadable>"
+                }
             }
-        }
-        $choice = Read-Host $message
-        if ($null -eq $choice -or $choice -lt 0 -or $choice -gt $objects.Count +1) {
-            Set-PrintAndLog -message "Invalid selection. Please enter a number from above"
-        }
-        if ($choice -eq 0 -and $true -eq $allowNull) {
-            return $null
-        }
-        if ($null -ne $objects[$choice - 1]){
-            return $objects[$choice - 1]
+            "# Type: $($object.GetType().FullName)`n" + ($lines -join "`n")
+        } catch {
+            "Unreadable Object"
         }
     }
+
+    if (-not $stringifiedObject) {
+        $stringifiedObject =  try {"$($($object).ToString())"} catch {$null}
+    }
+    # Truncate to max lines if necessary
+    $lines = $stringifiedObject -split "`r?`n"
+    if ($lines.Count -gt $MaxLines) {
+        $lines = $lines[0..($MaxLines - 1)] + "... (truncated)"
+    }
+
+    return $lines -join "`n"
 }
-function Get-YesNoResponse($message) {
+
+function Select-ObjectFromList($objects, $message, $inspectObjects = $false, $allowNull = $false) {
+    $validated = $false
+    while (-not $validated) {
+        if ($allowNull) { Write-Host "0: None/Custom" }
+
+        for ($i = 0; $i -lt $objects.Count; $i++) {
+            $object = $objects[$i]
+            $displayLine = if ($inspectObjects) {
+                "$($i+1): $(Write-InspectObject -object $object)"
+            } elseif ($null -ne $object.OptionMessage) {
+                "$($i+1): $($object.OptionMessage)"
+            } elseif (-not $([string]::IsNullOrEmpty($object.attributes.name))) {
+                "$($i+1): $($object.attributes.name)"
+            } elseif (-not $([string]::IsNullOrEmpty($object.name))) {
+                "$($i+1): $($object.name)"
+            } else {
+                "$($i+1): $($object)"
+            }
+            Write-Host $displayLine -ForegroundColor $(if ($i % 2 -eq 0) { 'Cyan' } else { 'Yellow' })
+        }
+
+        $raw = Read-Host $message
+
+        $parsed = 0
+        if (-not [int]::TryParse($raw, [ref]$parsed)) {
+            Write-Host "Invalid input. Please enter a number." -ForegroundColor Red
+            continue
+        }
+
+        if ($parsed -eq 0 -and $allowNull) { return $null }
+
+        if ($parsed -ge 1 -and $parsed -le $objects.Count) {
+            return $objects[$parsed - 1]
+        } else {
+            Write-Host "Invalid selection. Please enter a number from the list." -ForegroundColor Red
+        }
+    }
+}function Get-YesNoResponse($message) {
     do {
         $response = Read-Host "$message (y/n)"
         $response = if($null -ne $response) {$response.ToLower()} else {""}

@@ -75,6 +75,13 @@ $RunSummary=@{
             ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend",
             ".ds_store", ".thumbs", ".lnk", ".heic"
         )
+        IndexOnlyExtensions = [System.Collections.ArrayList]@(
+            if ($null -ne $SharePointIndexOnlyExtensions) {
+                @($SharePointIndexOnlyExtensions)
+            } else {
+                ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend", ".heic"
+            }
+        )
         LinkSourceArticles  = $true
         SourceFilesAsAttachments = $true
     }

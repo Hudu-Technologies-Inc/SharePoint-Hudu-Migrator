@@ -203,6 +203,25 @@ function ConvertDownloadedFiles {
 
             $outputDir = Split-Path $file.LocalPath
             $htmlPath = $null
+            $indexOnlyExtensions = @($RunSummary.SetupInfo.IndexOnlyExtensions) | ForEach-Object {
+                $configuredExtension = ([string]$_).Trim().ToLowerInvariant()
+                if ($configuredExtension -and -not $configuredExtension.StartsWith(".")) {
+                    ".$configuredExtension"
+                } else {
+                    $configuredExtension
+                }
+            }
+            if ($indexOnlyExtensions -contains $extension) {
+                Set-PrintAndLog -message "Index-only extension: $extension - skipping conversion and queuing for folder index article." -Color Yellow
+                $file | Add-Member -NotePropertyName IndexOnly -NotePropertyValue $true -Force
+                $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                if ($null -ne $IndexOnlyFiles) {
+                    [void]$IndexOnlyFiles.Add($file)
+                }
+                continue
+            }
             # images as sharepoint file download
             if ($EmbeddableImageExtensions -contains $extension){
                 Set-PrintAndLog -message "Image extension: $extension — generating user-friendly HTML." -Color Yellow

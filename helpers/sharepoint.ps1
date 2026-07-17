@@ -48,6 +48,8 @@ function Download-GraphDriveItemsRecursively {
                 DownloadUrl         = $item."@microsoft.graph.downloadUrl"
                 webViewUrl          = $item.webUrl
                 webDAVUrl           = $item.webDavUrl
+                CreatedDateTime     = $item.createdDateTime
+                LastModifiedDateTime= $item.lastModifiedDateTime
                 sharepointSiteUrl   = $item.sharepointIds.siteUrl
                 sharepointListId    = $item.sharepointIds.listId
                 sharepointItemId    = $item.sharepointIds.listItemId

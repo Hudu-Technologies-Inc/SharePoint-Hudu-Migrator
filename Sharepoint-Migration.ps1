@@ -17,6 +17,8 @@ $scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 $userSelectedSites = [System.Collections.ArrayList]@()
 $AllDiscoveredFiles = [System.Collections.ArrayList]@()
 $AllDiscoveredFolders = [System.Collections.ArrayList]@()
+$IndexOnlyFiles = [System.Collections.ArrayList]@()
+$IndexOnlyArticles = [System.Collections.ArrayList]@()
 $Attribution_Options=[System.Collections.ArrayList]@()
 $AllNewLinks = [System.Collections.ArrayList]@()        
 $discoveredFiles = [System.Collections.ArrayList]@()
@@ -50,15 +52,9 @@ $manifestParams = @{
     ManifestMode = 'Auto'
     ManifestDir  = ".\out\sharepoint-manifests"
     Headers      = $SharePointHeaders
+    FirstSiteOnly = $SharePointManifestFirstSiteOnly ?? $false
 }
-
-if ($SharePointManifestMaxSites -gt 0) {
-    $manifestParams.MaxSites = $SharePointManifestMaxSites
-}
-
-if ($SharePointManifestFirstSiteOnly) {
-    $manifestParams.FirstSiteOnly = $true
-}
+if ($null -ne $SharePointManifestMaxSites -and $SharePointManifestMaxSites -gt 0) {$manifestParams.MaxSites = $SharePointManifestMaxSites}
 
 $manifestSet = Initialize-SharePointManifestSet @manifestParams
 
@@ -108,6 +104,9 @@ Set-IncrementedState -newState "Read Now-Converted File Contents"
 ##### Step 5, create articles, uploads, folders, then relink articles
 ##
 #
+Set-IncrementedState -newState "Create index-only file articles"
+. .\jobs\Make-IndexOnlyArticles.ps1
+
 Set-IncrementedState -newState "Determine Company Designations and Folder Structure"
 . .\jobs\Make-ArticleStubs.ps1
 

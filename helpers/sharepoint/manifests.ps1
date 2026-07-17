@@ -987,6 +987,7 @@ function ConvertFrom-SharePointManifestSet {
                             Name               = $item.name
                             WebUrl             = $item.webUrl
                             Size               = $item.size
+                            CreatedDateTime    = $item.createdDateTime
                             LastModified       = $item.lastModifiedDateTime
                             IsContainer        = [bool]$isFolder
                             SiteId             = $site.id
@@ -1016,6 +1017,7 @@ function ConvertFrom-SharePointManifestSet {
                             Name            = $item.fields.Title ?? $item.webUrl ?? $item.id
                             WebUrl          = $item.webUrl
                             Size            = $null
+                            CreatedDateTime = $item.createdDateTime
                             LastModified    = $item.lastModifiedDateTime
                             IsContainer     = $false
                             SiteId          = $site.id

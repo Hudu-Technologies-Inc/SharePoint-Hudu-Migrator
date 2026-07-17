@@ -9,4 +9,8 @@ $clientSecret= ""
 $hudubaseurl = "yoururl.huducloud.com"
 $huduapikey = ""
 
+# Optional: file types that should become folder-level Hudu index articles
+# instead of being converted into one article per file.
+# $SharePointIndexOnlyExtensions = @(".eps", ".ai", ".psd", ".indd")
+
 . .\Sharepoint-Migration.ps1

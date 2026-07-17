@@ -55,6 +55,8 @@ $RunSummary=@{
         ConvertedFiles   =   "$(join-path $logsFolder -ChildPath "converted.json")"
         ClientAttributionMap = "$(join-path $logsFolder -ChildPath "client-attribution-map.json")"
         ClientAttributionReview = "$(join-path $logsFolder -ChildPath "client-attribution-review.csv")"
+        StructuredListJsonDir = "$(join-path $logsFolder -ChildPath "structured-list-json")"
+        StructuredListJsonIndex = "$(join-path $logsFolder -ChildPath "structured-list-json-index.csv")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
     }
     SetupInfo=@{
@@ -79,6 +81,13 @@ $RunSummary=@{
                 @($SharePointClientAttributionListNames)
             } else {
                 "Client List"
+            }
+        )
+        StructuredListJsonNames = @(
+            if ($null -ne $SharePointStructuredListJsonNames) {
+                @($SharePointStructuredListJsonNames)
+            } else {
+                @()
             }
         )
         DisallowedForConvert = [System.Collections.ArrayList]@(

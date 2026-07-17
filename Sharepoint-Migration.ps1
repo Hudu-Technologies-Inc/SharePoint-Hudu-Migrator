@@ -81,6 +81,9 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 # 2.3 Build optional client attribution map
 . .\jobs\Build-ClientAttributionMap.ps1
 
+# 2.4 Export configured structured SharePoint lists for later asset import
+. .\jobs\Export-StructuredListJson.ps1
+
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##
 #
@@ -263,4 +266,3 @@ $SummaryJson -split "`n" | ForEach-Object {
 }
 $SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
 Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta
-

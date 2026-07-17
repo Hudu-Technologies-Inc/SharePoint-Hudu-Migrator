@@ -29,4 +29,27 @@ $huduapikey = ""
 # $SharePointClientAttributionMinScore = 95
 # $SharePointClientAttributionMinGap = 5
 
+# Optional: export selected SharePoint lists as per-company JSON bundles
+# instead of trying to turn structured inventory records into articles.
+# Matches also work when SharePoint appends suffixes like "_[DEMO]".
+# $SharePointStructuredListJsonNames = @(
+#   "Mapped Drives",
+#   "Mail Flow",
+#   "Domain/Forest info",
+#   "Software Shares",
+#   "Core Networking",
+#   "Products",
+#   "Printers",
+#   "Active Servers",
+#   "UPS - Battery Backups",
+#   "Network Devices",
+#   "Web Hosting",
+#   "Locations",
+#   "Important Client Notes",
+#   "Primary Contact",
+#   "3rd Party - Escalation Contact Info",
+#   "ISP Info",
+#   "Connectivity"
+# )
+
 . .\Sharepoint-Migration.ps1

@@ -35,15 +35,35 @@ foreach ($doc in $docsToStub) {
                 $doc.title
             ) -join ' '
             $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
-                Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $sourceText -AttributionMap $ClientAttributionMap -AutoOnly
+                Resolve-HuduCompanyFromSharePointAttributionMap `
+                    -SourceText $sourceText `
+                    -AttributionMap $ClientAttributionMap `
+                    -AutoOnly `
+                    -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
+                    -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
+                    -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
             } else {
                 $null
             }
 
-            if ($attributionMatch) {
-                $doc.CompanyId = $attributionMatch.Entry.HuduCompanyId
-                $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $attributionMatch.Entry -Force
-                Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to '$($attributionMatch.Entry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Entry.Confidence)%)." -Color Cyan
+            $attributionEntry = if ($attributionMatch) {
+                try {
+                    Confirm-HuduCompanyForSharePointAttributionMatch `
+                        -AttributionMatch $attributionMatch `
+                        -AttributionMap $ClientAttributionMap `
+                        -CreateMissing:$RunSummary.SetupInfo.ClientAttributionCreateMissing
+                } catch {
+                    Set-PrintAndLog -message "Failed to create Hudu company for client list item '$($attributionMatch.Entry.ClientName)': $($_.Exception.Message)" -Color Red
+                    $null
+                }
+            } else {
+                $null
+            }
+
+            if ($attributionEntry -and $attributionEntry.HuduCompanyId) {
+                $doc.CompanyId = $attributionEntry.HuduCompanyId
+                $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $attributionEntry -Force
+                Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to client list item '$($attributionEntry.RawTitle)' => Hudu company '$($attributionEntry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Confidence)%)." -Color Cyan
             } else {
                 $doc.CompanyId = (
                     Select-ObjectFromList `

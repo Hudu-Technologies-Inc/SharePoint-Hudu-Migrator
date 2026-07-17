@@ -29,6 +29,9 @@ $huduapikey = ""
 # $SharePointClientAttributionListNames = @("Client List")
 # $SharePointClientAttributionMinScore = 95
 # $SharePointClientAttributionMinGap = 5
+# $SharePointClientAttributionListItemMinScore = 95
+# $SharePointClientAttributionListItemMinGap = 3
+# $SharePointClientAttributionCreateMissing = $false
 
 # Optional: when selecting "Match/Create one company per SharePoint site",
 # tune matching and whether missing companies should be created.

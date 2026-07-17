@@ -136,6 +136,120 @@ function Get-AttributionSimilarityScore {
     return [Math]::Max($levenshteinScore, $tokenScore)
 }
 
+function Get-AttributionBestSourceWindowScore {
+    param (
+        [string]$Alias,
+        [string[]]$SourceTokens
+    )
+
+    $aliasTokens = @(ConvertTo-AttributionNormalizedText $Alias -split '\s+' | Where-Object { $_ })
+    if ($aliasTokens.Count -eq 0 -or $SourceTokens.Count -eq 0) { return 0 }
+
+    $windowSizes = @(
+        [Math]::Max(1, $aliasTokens.Count - 1),
+        $aliasTokens.Count,
+        ($aliasTokens.Count + 1)
+    ) | Sort-Object -Unique
+
+    $best = 0
+    $aliasText = $aliasTokens -join ' '
+
+    foreach ($windowSize in $windowSizes) {
+        if ($windowSize -gt $SourceTokens.Count) { continue }
+        for ($i = 0; $i -le ($SourceTokens.Count - $windowSize); $i++) {
+            $windowText = @($SourceTokens[$i..($i + $windowSize - 1)]) -join ' '
+            $score = Get-AttributionSimilarityScore -Left $aliasText -Right $windowText
+            if ($score -gt $best) { $best = $score }
+        }
+    }
+
+    return [double]$best
+}
+
+function Get-SharePointClientListItemSourceMatchCandidates {
+    param (
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+
+        [Parameter(Mandatory)]
+        [array]$AttributionMap,
+
+        [switch]$AutoOnly,
+
+        [switch]$AllowUnmatchedClientEntry
+    )
+
+    $normalizedSource = ConvertTo-AttributionNormalizedText $SourceText
+    if (-not $normalizedSource) { return @() }
+
+    $sourceTokens = @($normalizedSource -split '\s+' | Where-Object { $_ })
+    $sourceTokenSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$sourceTokens)
+
+    foreach ($entry in @($AttributionMap)) {
+        if ($AutoOnly -and -not $entry.AutoMatched -and -not $AllowUnmatchedClientEntry) { continue }
+
+        $bestScore = 0
+        $bestAlias = $null
+        $bestReason = $null
+        $bestAliasLength = 0
+
+        $normalizedCode = ConvertTo-AttributionNormalizedText ($entry.NormalizedClientCode ?? $entry.ClientCode)
+        if ($normalizedCode -and $normalizedCode.Length -ge 2 -and $sourceTokenSet.Contains($normalizedCode)) {
+            $bestScore = 100
+            $bestAlias = $normalizedCode
+            $bestReason = 'exact_client_code_in_source'
+            $bestAliasLength = $normalizedCode.Length
+        }
+
+        foreach ($alias in @($entry.Aliases)) {
+            $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
+            if (-not $normalizedAlias -or $normalizedAlias.Length -lt 3) { continue }
+
+            $score = 0
+            $reason = $null
+            $aliasTokens = @($normalizedAlias -split '\s+' | Where-Object { $_ -and $_.Length -gt 1 })
+            $sharedTokenCount = if ($aliasTokens.Count -gt 0) {
+                @($aliasTokens | Where-Object { $sourceTokenSet.Contains($_) }).Count
+            } else {
+                0
+            }
+
+            if ($normalizedSource -eq $normalizedAlias -or $normalizedSource.Contains($normalizedAlias)) {
+                $score = 99
+                $reason = 'client_list_item_alias_in_source'
+            } elseif ($aliasTokens.Count -gt 0 -and $sharedTokenCount -eq $aliasTokens.Count) {
+                $score = 97
+                $reason = 'client_list_item_tokens_in_source'
+            } elseif ($sharedTokenCount -ge [Math]::Max(1, [Math]::Ceiling($aliasTokens.Count * 0.5))) {
+                $windowScore = Get-AttributionBestSourceWindowScore -Alias $normalizedAlias -SourceTokens $sourceTokens
+                if ($windowScore -ge 85) {
+                    $score = [double]$windowScore
+                    $reason = 'client_list_item_fuzzy_source_window'
+                }
+            }
+
+            if ($score -gt $bestScore -or ($score -eq $bestScore -and $normalizedAlias.Length -gt $bestAliasLength)) {
+                $bestScore = [double]$score
+                $bestAlias = $normalizedAlias
+                $bestReason = $reason
+                $bestAliasLength = $normalizedAlias.Length
+            }
+        }
+
+        if ($bestScore -gt 0) {
+            [PSCustomObject]@{
+                Entry                 = $entry
+                Alias                 = $bestAlias
+                AliasLength           = $bestAliasLength
+                Confidence            = [double]$bestScore
+                ClientMatchConfidence = [double]$bestScore
+                HuduMatchConfidence   = [double]($entry.Confidence ?? 0)
+                Reason                = $bestReason
+            }
+        }
+    }
+}
+
 function Get-SharePointClientListEntries {
     param (
         [Parameter(Mandatory)] $ManifestSet,
@@ -311,7 +425,7 @@ function New-HuduClientAttributionMapFromEntries {
         $autoMatched = ($best -and [double]$best.Score -ge $MinScore -and $gap -ge $MinGap)
         $aliases = [System.Collections.Generic.List[string]]::new()
 
-        foreach ($alias in @($entry.ClientName, $entry.StrippedName, $entry.RawTitle)) {
+        foreach ($alias in @($entry.ClientName, $entry.StrippedName)) {
             $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
             if ($normalizedAlias -and $normalizedAlias.Length -ge 3 -and -not $aliases.Contains($normalizedAlias)) {
                 $aliases.Add($normalizedAlias)
@@ -367,46 +481,74 @@ function Resolve-HuduCompanyFromSharePointAttributionMap {
         [Parameter(Mandatory)]
         [array]$AttributionMap,
 
-        [switch]$AutoOnly
+        [switch]$AutoOnly,
+
+        [switch]$AllowUnmatchedClientEntry,
+
+        [int]$MinScore = 95,
+
+        [int]$MinGap = 3
     )
 
-    $normalizedSource = ConvertTo-AttributionNormalizedText $SourceText
-    if (-not $normalizedSource) { return $null }
-    $sourceTokens = @($normalizedSource -split '\s+' | Where-Object { $_ })
+    $matches = @(
+        Get-SharePointClientListItemSourceMatchCandidates `
+            -SourceText $SourceText `
+            -AttributionMap $AttributionMap `
+            -AutoOnly:$AutoOnly `
+            -AllowUnmatchedClientEntry:$AllowUnmatchedClientEntry
+    ) | Sort-Object Confidence, AliasLength, HuduMatchConfidence -Descending
 
-    $matches = foreach ($entry in @($AttributionMap)) {
-        if ($AutoOnly -and -not $entry.AutoMatched) { continue }
+    $best = $matches | Select-Object -First 1
+    $second = $matches | Select-Object -Skip 1 -First 1
+    if (-not $best -or [double]$best.Confidence -lt $MinScore) { return $null }
 
-        $normalizedCode = ConvertTo-AttributionNormalizedText ($entry.NormalizedClientCode ?? $entry.ClientCode)
-        if ($normalizedCode -and $normalizedCode.Length -ge 2 -and $sourceTokens -contains $normalizedCode) {
-            [PSCustomObject]@{
-                Entry       = $entry
-                Alias       = $normalizedCode
-                AliasLength = $normalizedCode.Length
-                Confidence  = [Math]::Max([double]$entry.Confidence, 99)
-                Reason      = 'exact_client_code_in_source'
-            }
-            continue
-        }
+    $gap = if ($second) { [double]$best.Confidence - [double]$second.Confidence } else { [double]$best.Confidence }
+    if ($gap -lt $MinGap) { return $null }
 
-        foreach ($alias in @($entry.Aliases)) {
-            $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
-            if (-not $normalizedAlias -or $normalizedAlias.Length -lt 3) { continue }
-            if ($normalizedSource -eq $normalizedAlias -or $normalizedSource.Contains($normalizedAlias)) {
-                [PSCustomObject]@{
-                    Entry       = $entry
-                    Alias       = $normalizedAlias
-                    AliasLength = $normalizedAlias.Length
-                    Confidence  = [double]$entry.Confidence
-                    Reason      = 'alias_in_source'
-                }
-            }
+    $best | Add-Member -MemberType NoteProperty -Name ConfidenceGap -Value ([double]$gap) -Force
+    return $best
+}
+
+function Confirm-HuduCompanyForSharePointAttributionMatch {
+    param (
+        $AttributionMatch,
+        [array]$AttributionMap = @(),
+        [switch]$CreateMissing
+    )
+
+    if (-not $AttributionMatch -or -not $AttributionMatch.Entry) { return $null }
+
+    $entry = $AttributionMatch.Entry
+    if ($entry.HuduCompanyId -and ($entry.AutoMatched -or $entry.MatchStatus -eq 'Created')) { return $entry }
+    if (-not $CreateMissing) { return $null }
+
+    $companyName = $entry.ClientName
+    if ([string]::IsNullOrWhiteSpace([string]$companyName)) {
+        $companyName = $entry.RawTitle
+    }
+
+    if ([string]::IsNullOrWhiteSpace([string]$companyName)) { return $null }
+
+    $created = New-HuduCompany -Name $companyName
+    $company = $created.company ?? $created
+    if (-not $company -or -not $company.Id) {
+        throw "New-HuduCompany did not return a company id for '$companyName'."
+    }
+
+    $normalizedName = ConvertTo-AttributionNormalizedText $entry.ClientName
+    foreach ($relatedEntry in @($AttributionMap)) {
+        if ((ConvertTo-AttributionNormalizedText $relatedEntry.ClientName) -eq $normalizedName) {
+            $relatedEntry.HuduCompanyId = $company.Id
+            $relatedEntry.HuduCompanyName = $company.Name
+            $relatedEntry.Confidence = 100
+            $relatedEntry.ConfidenceGap = 100
+            $relatedEntry.MatchReason = 'created_missing_company_from_client_list_item'
+            $relatedEntry.AutoMatched = $true
+            $relatedEntry.MatchStatus = 'Created'
         }
     }
 
-    return $matches |
-        Sort-Object Confidence, AliasLength -Descending |
-        Select-Object -First 1
+    return $entry
 }
 
 function Get-HuduCompanySiteCandidates {

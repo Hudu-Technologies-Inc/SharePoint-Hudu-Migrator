@@ -113,14 +113,34 @@ function Get-IndexOnlyCompanyId {
                 @($Files | Select-Object -First 5 | ForEach-Object { $_.Name })
             ) -join ' '
             $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
-                Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $sourceText -AttributionMap $ClientAttributionMap -AutoOnly
+                Resolve-HuduCompanyFromSharePointAttributionMap `
+                    -SourceText $sourceText `
+                    -AttributionMap $ClientAttributionMap `
+                    -AutoOnly `
+                    -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
+                    -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
+                    -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
             } else {
                 $null
             }
 
-            if ($attributionMatch) {
-                Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to '$($attributionMatch.Entry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Entry.Confidence)%)." -Color Cyan
-                return $attributionMatch.Entry.HuduCompanyId
+            $attributionEntry = if ($attributionMatch) {
+                try {
+                    Confirm-HuduCompanyForSharePointAttributionMatch `
+                        -AttributionMatch $attributionMatch `
+                        -AttributionMap $ClientAttributionMap `
+                        -CreateMissing:$RunSummary.SetupInfo.ClientAttributionCreateMissing
+                } catch {
+                    Set-PrintAndLog -message "Failed to create Hudu company for client list item '$($attributionMatch.Entry.ClientName)': $($_.Exception.Message)" -Color Red
+                    $null
+                }
+            } else {
+                $null
+            }
+
+            if ($attributionEntry -and $attributionEntry.HuduCompanyId) {
+                Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to client list item '$($attributionEntry.RawTitle)' => Hudu company '$($attributionEntry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Confidence)%)." -Color Cyan
+                return $attributionEntry.HuduCompanyId
             }
 
             $sample = @($Files | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ", "

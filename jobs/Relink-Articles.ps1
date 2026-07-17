@@ -39,7 +39,7 @@ function Relink-DocumentUploads {
         $html = $doc.replacedContent
         if (-not $doc.PSObject.Properties['OverrideContent']) {
         # Replace all links or filenames matching the original filename, then attachments
-            $updatedHTML = Replace-HuduAttachmentLinkBlock -html $updatedHTML -sourceFile $doc
+            $html = Replace-HuduAttachmentLinkBlock -html $html -sourceFile $doc
             foreach ($link in $foundLinks) {
                 if ($link.ToLowerInvariant() -like "*$filenameOnly*") {
                     Set-PrintandLog -Message "linking $($link.ToLowerInvariant()) => $docAsAttachmentUrl via $filenameOnly"

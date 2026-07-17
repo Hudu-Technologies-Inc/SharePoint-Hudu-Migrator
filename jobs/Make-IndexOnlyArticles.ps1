@@ -180,8 +180,8 @@ foreach ($group in $indexGroups) {
         $file | Add-Member -NotePropertyName IndexHuduUrl -NotePropertyValue $null -Force
         $file | Add-Member -NotePropertyName IndexUploadStatus -NotePropertyValue $null -Force
 
-        if ($file.FileTooLarge -or ((Test-Path $file.LocalPath) -and (Get-Item $file.LocalPath).Length -gt 100MB)) {
-            $file.IndexUploadStatus = "Too large for Hudu upload"
+        if ($file.FileTooLarge -or ((Test-Path $file.LocalPath) -and (Get-Item $file.LocalPath).Length -ge 100MB)) {
+            $file.IndexUploadStatus = "100 MB or larger; use SharePoint link"
             Set-PrintAndLog -message "Index-only file too large for Hudu upload: $($file.LocalPath)" -Color Yellow
             continue
         }

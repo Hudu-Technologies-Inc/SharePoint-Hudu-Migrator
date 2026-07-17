@@ -15,10 +15,10 @@ foreach ($doc in $StubbedArticles) {
     foreach ($att in $doc.AllAttachments) {
         $AttachIDX+=1
         $localPath      = $att
-        $fileSize       = (Get-Item $localPath).Length
-        $tooLarge       = [bool]$($fileSize -gt 100MB)
-        $isImage        = [bool]$($att -match '\.(jpg|jpeg|png)$')
         $exists = Test-Path $localPath
+        $fileSize       = if ($exists) { (Get-Item $localPath).Length } else { 0 }
+        $tooLarge       = [bool]$($exists -and $fileSize -ge 100MB)
+        $isImage        = [bool]$($att -match '\.(jpg|jpeg|png)$')
 
         $record = [PSCustomObject]@{
             FileName           = $att
@@ -51,14 +51,13 @@ foreach ($doc in $StubbedArticles) {
         }
         # handle attachment is too large
         if ($true -eq $record.AttachmentTooLarge) {
-            $ErrorObject=@{
+            Set-PrintAndLog -Message "Attachment is 100 MB or larger; skipping Hudu upload and relying on SharePoint link: $localPath" -Color Yellow
+            $RunSummary.Warnings += @{
                 Attachment = "$att"
-                Problem    = "$($record.Filename) is TOO LARGE for Hudu. Manual Action is required. Skipping."
+                Warning    = "$($record.Filename) is 100 MB or larger and was not uploaded to Hudu."
                 doc        = "$($doc.title), $($doc.id)"
                 Article    = "Hudu stub with id $($($doc.stub).id) at $($($doc.stub).url)"
             }
-            Write-ErrorObjectsToFile -ErrorObject $ErrorObject -name "Attach-Error-$($record.Filename)"
-            $RunSummary.Errors += $errorObject
             continue
         }
 

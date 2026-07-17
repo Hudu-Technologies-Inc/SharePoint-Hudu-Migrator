@@ -21,9 +21,27 @@ function Get-AttachmentLink {
     )
 
 return $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
+if ($sourceFile.FileTooLarge) {
+    $sourceUrl = $sourceFile.webViewUrl
+    if (-not $sourceUrl) {
+        $sourceUrl = @($sourceFile.OriginalLinks)[0]
+    }
+    if ($sourceUrl) {
+        $safeUrl = [System.Web.HttpUtility]::HtmlAttributeEncode($sourceUrl)
+        $safeTitle = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
 @"
-<br><a href='$([System.IO.Path]::GetFileName($sourceFile.LocalPath))'>Attached Original File: $($sourceFile.title)</a>
+<br><a href='$safeUrl' target='_blank'>Original file is 100 MB or larger; view in SharePoint: $safeTitle</a>
 "@
+    } else {
+        ""
+    }
+} else {
+    $safeFilename = [System.Web.HttpUtility]::HtmlAttributeEncode([System.IO.Path]::GetFileName($sourceFile.LocalPath))
+    $safeTitle = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
+@"
+<br><a href='$safeFilename'>Attached Original File: $safeTitle</a>
+"@
+}
 } else {
     ""
 })

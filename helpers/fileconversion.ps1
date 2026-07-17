@@ -172,6 +172,30 @@ function Get-EmbeddedFilesFromHtml {
     return $results
 }
 
+function Get-SharePointAttachmentList {
+    param (
+        [Parameter(Mandatory)] $File,
+        [array]$AdditionalFiles = @()
+    )
+
+    $attachments = [System.Collections.ArrayList]@()
+    foreach ($attachment in @($AdditionalFiles)) {
+        if ($attachment) {
+            [void]$attachments.Add($attachment)
+        }
+    }
+
+    if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
+        if ($File.FileTooLarge) {
+            Set-PrintAndLog -message "Source file is 100 MB or larger; not attaching to Hudu and linking back to SharePoint instead: $($File.LocalPath)" -Color Yellow
+        } elseif ($File.LocalPath) {
+            [void]$attachments.Add($File.LocalPath)
+        }
+    }
+
+    return @($attachments | Sort-Object -Unique)
+}
+
 # TODO: DRY this up later.
 function ConvertDownloadedFiles {
     param (
@@ -233,7 +257,7 @@ function ConvertDownloadedFiles {
                 $file.UsingGeneratedHTML = $true
                 $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
                 $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
-                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {@($file.LocalPath)} else {[System.Collections.ArrayList]@()}) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue (Get-SharePointAttachmentList -File $file) -Force
                 $convertedbatch.Add($file) | Out-Null
                 continue
             }
@@ -248,7 +272,7 @@ function ConvertDownloadedFiles {
                 $file.UsingGeneratedHTML = $true
                 $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
                 $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
-                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {@($file.LocalPath)} else {[System.Collections.ArrayList]@()}) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue (Get-SharePointAttachmentList -File $file) -Force
                 $convertedbatch.Add($file) | Out-Null
                 continue    
             }
@@ -283,12 +307,7 @@ function ConvertDownloadedFiles {
                 }
                 $file | Add-Member -NotePropertyName ExternalFiles -NotePropertyValue $foundfiles.ExternalFiles -Force
                 $file | Add-Member -NotePropertyName Base64ImagesWritten  -NotePropertyValue $foundfiles.Base64ImagesWritten  -Force
-                $allfiles=@() 
-                if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
-                    $allFiles = @(@($file.ExternalFiles) + @($file.Base64ImagesWritten) + @($file.LocalPath)) | Sort-Object -Unique
-                } else {
-                    $allFiles = @(@($file.ExternalFiles) + @($file.Base64ImagesWritten)) | Sort-Object -Unique
-                }
+                $allFiles = Get-SharePointAttachmentList -File $file -AdditionalFiles @(@($file.ExternalFiles) + @($file.Base64ImagesWritten))
                 $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue $allFiles -Force
 
             }

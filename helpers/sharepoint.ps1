@@ -74,7 +74,7 @@ function Download-GraphDriveItemsRecursively {
                 Id                  = $item.id
                 RelativePath        = $relativePath 
                 Filesize            = (Get-Item $itemPath).Length
-                FileTooLarge        = ((Get-Item $itemPath).Length -gt 100MB)
+                FileTooLarge        = ((Get-Item $itemPath).Length -ge 100MB)
             })
             Set-PrintAndLog -message "Downloaded: $itemPath" -Color DarkMagenta
         }

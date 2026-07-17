@@ -24,7 +24,7 @@ $tmpfolder=$(join-path "$workdir" "tmp")
 $ErroredItemsFolder=$(join-path "$logsFolder" "errored")
 Write-Host "Hudu Max Docsize: $HUDU_MAX_DOCSIZE"
 
-$EmbeddableImageExtensions = @(
+$EmbeddableImageExtensions = $EmbeddableImageExtensions ?? @(
     ".jpg", ".jpeg",  # JPEG
     ".png",           # Portable Network Graphics
     ".gif",           # GIF (including animated)

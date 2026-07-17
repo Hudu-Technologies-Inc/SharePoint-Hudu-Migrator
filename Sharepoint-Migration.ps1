@@ -30,6 +30,7 @@ $AllCompanies = @()
 $SingleCompanyChoice=@{}
 $StubbedArticles=@()
 $ClientAttributionMap=@()
+$SiteCompanyMap=@()
 
 foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort-Object Name)) {
     Write-Host "Importing: $($file.Name)" -ForegroundColor DarkBlue
@@ -78,10 +79,13 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1
 
-# 2.3 Build optional client attribution map
+# 2.3 Build optional site-to-company map
+. .\jobs\Build-SiteCompanyMap.ps1
+
+# 2.4 Build optional client attribution map
 . .\jobs\Build-ClientAttributionMap.ps1
 
-# 2.4 Export configured structured SharePoint lists for later asset import
+# 2.5 Export configured structured SharePoint lists for later asset import
 . .\jobs\Export-StructuredListJson.ps1
 
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files

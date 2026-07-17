@@ -29,6 +29,12 @@ $huduapikey = ""
 # $SharePointClientAttributionMinScore = 95
 # $SharePointClientAttributionMinGap = 5
 
+# Optional: when selecting "Match/Create one company per SharePoint site",
+# tune matching and whether missing companies should be created.
+# $SharePointSiteCompanyMinScore = 95
+# $SharePointSiteCompanyMinGap = 5
+# $SharePointSiteCompanyCreateMissing = $true
+
 # Optional: export selected SharePoint lists as per-company JSON bundles
 # instead of trying to turn structured inventory records into articles.
 # Matches also work when SharePoint appends suffixes like "_[DEMO]".

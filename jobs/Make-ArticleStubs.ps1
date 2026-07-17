@@ -12,6 +12,21 @@ foreach ($doc in $docsToStub) {
     switch ([int]$RunSummary.JobInfo.MigrationDest.Identifier) {
         0 { $doc.CompanyId = $SingleCompanyChoice.id }
         1 { $doc.CompanyId = $null }
+        3 {
+            $siteCompany = Resolve-HuduCompanyFromSiteCompanyMap -SiteId $doc.SiteId -SiteName $doc.SiteName -SiteCompanyMap $SiteCompanyMap
+            if ($siteCompany -and $siteCompany.HuduCompanyId) {
+                $doc.CompanyId = $siteCompany.HuduCompanyId
+                $doc | Add-Member -NotePropertyName SiteCompanyMatch -NotePropertyValue $siteCompany -Force
+                Set-PrintAndLog -message "Assigned '$($doc.title)' to per-site Hudu company '$($siteCompany.HuduCompanyName)'." -Color Cyan
+            } else {
+                Set-PrintAndLog -message "No per-site Hudu company available for '$($doc.SiteName)'; falling back to manual company selection." -Color Yellow
+                $doc.CompanyId = (
+                    Select-ObjectFromList `
+                        -message "Migrating Article: $($doc.ContentPreview ?? "no preview")... Which company to migrate into?" `
+                        -objects $Attribution_Options
+                ).CompanyId
+            }
+        }
         default {
             $sourceText = @(
                 $doc.SiteName

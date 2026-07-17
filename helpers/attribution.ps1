@@ -298,3 +298,69 @@ function Resolve-HuduCompanyFromSharePointAttributionMap {
         Sort-Object Confidence, AliasLength -Descending |
         Select-Object -First 1
 }
+
+function Get-HuduCompanySiteCandidates {
+    param (
+        [Parameter(Mandatory)] $Site,
+        [Parameter(Mandatory)] [array]$Companies
+    )
+
+    $siteName = $Site.displayName ?? $Site.name
+    $siteSlug = $Site.name
+    $siteEntry = [PSCustomObject]@{
+        ClientName     = $siteName
+        ClientCode     = $null
+        NormalizedName = ConvertTo-AttributionNormalizedText $siteName
+        StrippedName   = Remove-AttributionLegalSuffixes $siteName
+    }
+
+    $candidates = @(Get-HuduCompanyAttributionCandidates -ClientEntry $siteEntry -Companies $Companies)
+
+    if ($siteSlug -and $siteSlug -ne $siteName) {
+        $slugEntry = [PSCustomObject]@{
+            ClientName     = $siteSlug
+            ClientCode     = $null
+            NormalizedName = ConvertTo-AttributionNormalizedText $siteSlug
+            StrippedName   = Remove-AttributionLegalSuffixes $siteSlug
+        }
+
+        $slugCandidates = @(Get-HuduCompanyAttributionCandidates -ClientEntry $slugEntry -Companies $Companies)
+        foreach ($candidate in $slugCandidates) {
+            $existing = $candidates | Where-Object { $_.CompanyId -eq $candidate.CompanyId } | Select-Object -First 1
+            if ($existing) {
+                if ([double]$candidate.Score -gt [double]$existing.Score) {
+                    $existing.Score = [double]$candidate.Score
+                    $existing.Reason = "site_slug_$($candidate.Reason)"
+                }
+            } else {
+                $candidate.Reason = "site_slug_$($candidate.Reason)"
+                $candidates += $candidate
+            }
+        }
+    }
+
+    return $candidates | Sort-Object Score -Descending
+}
+
+function Resolve-HuduCompanyFromSiteCompanyMap {
+    param (
+        [string]$SiteId,
+        [string]$SiteName,
+        [array]$SiteCompanyMap
+    )
+
+    if ($SiteId) {
+        $match = $SiteCompanyMap | Where-Object { $_.SiteId -eq $SiteId } | Select-Object -First 1
+        if ($match) { return $match }
+    }
+
+    if ($SiteName) {
+        $normalizedSiteName = ConvertTo-AttributionNormalizedText $SiteName
+        $match = $SiteCompanyMap |
+            Where-Object { (ConvertTo-AttributionNormalizedText $_.SiteName) -eq $normalizedSiteName } |
+            Select-Object -First 1
+        if ($match) { return $match }
+    }
+
+    return $null
+}

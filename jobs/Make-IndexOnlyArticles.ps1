@@ -89,6 +89,22 @@ function Get-IndexOnlyCompanyId {
     switch ([int]$RunSummary.JobInfo.MigrationDest.Identifier) {
         0 { return $SingleCompanyChoice.id }
         1 { return $null }
+        3 {
+            $sampleFile = @($Files | Select-Object -First 1)[0]
+            $siteCompany = Resolve-HuduCompanyFromSiteCompanyMap -SiteId $sampleFile.SiteId -SiteName $sampleFile.SiteName -SiteCompanyMap $SiteCompanyMap
+            if ($siteCompany -and $siteCompany.HuduCompanyId) {
+                Set-PrintAndLog -message "Assigned index-only folder '$RelativeFolderPath' to per-site Hudu company '$($siteCompany.HuduCompanyName)'." -Color Cyan
+                return $siteCompany.HuduCompanyId
+            }
+
+            Set-PrintAndLog -message "No per-site Hudu company available for index-only folder '$RelativeFolderPath'; falling back to manual company selection." -Color Yellow
+            $sample = @($Files | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ", "
+            return (
+                Select-ObjectFromList `
+                    -message "Index-only folder: $RelativeFolderPath ($(@($Files).Count) file(s); $sample). Which company to migrate into?" `
+                    -objects $Attribution_Options
+            ).CompanyId
+        }
         default {
             $sourceText = @(
                 $RelativeFolderPath

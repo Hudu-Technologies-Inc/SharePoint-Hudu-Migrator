@@ -55,6 +55,8 @@ $RunSummary=@{
         ConvertedFiles   =   "$(join-path $logsFolder -ChildPath "converted.json")"
         ClientAttributionMap = "$(join-path $logsFolder -ChildPath "client-attribution-map.json")"
         ClientAttributionReview = "$(join-path $logsFolder -ChildPath "client-attribution-review.csv")"
+        SiteCompanyMap = "$(join-path $logsFolder -ChildPath "site-company-map.json")"
+        SiteCompanyReview = "$(join-path $logsFolder -ChildPath "site-company-review.csv")"
         StructuredListJsonDir = "$(join-path $logsFolder -ChildPath "structured-list-json")"
         StructuredListJsonIndex = "$(join-path $logsFolder -ChildPath "structured-list-json-index.csv")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
@@ -76,6 +78,9 @@ $RunSummary=@{
         ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)
         ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)
         ClientAttributionMinGap = [int]($SharePointClientAttributionMinGap ?? 5)
+        SiteCompanyMinScore = [int]($SharePointSiteCompanyMinScore ?? 95)
+        SiteCompanyMinGap = [int]($SharePointSiteCompanyMinGap ?? 5)
+        SiteCompanyCreateMissing = [bool]($SharePointSiteCompanyCreateMissing ?? $true)
         ClientAttributionListNames = @(
             if ($null -ne $SharePointClientAttributionListNames) {
                 @($SharePointClientAttributionListNames)

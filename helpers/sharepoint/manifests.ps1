@@ -186,6 +186,145 @@ function Resolve-SharePointManifestOutputPath {
     [System.IO.Path]::GetFullPath((Join-Path -Path $PWD -ChildPath $OutputPath))
 }
 
+function ConvertTo-SharePointManifestSafeFileName {
+    [CmdletBinding()]
+    param(
+        [string]$Value,
+
+        [string]$Fallback = 'site'
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        $Value = $Fallback
+    }
+
+    $safeValue = $Value
+
+    foreach ($invalidChar in [System.IO.Path]::GetInvalidFileNameChars()) {
+        $safeValue = $safeValue.Replace($invalidChar, '-')
+    }
+
+    $safeValue = ($safeValue -replace '\s+', '-').Trim('-')
+
+    if ([string]::IsNullOrWhiteSpace($safeValue)) {
+        $safeValue = $Fallback
+    }
+
+    if ($safeValue.Length -gt 90) {
+        $safeValue = $safeValue.Substring(0, 90).Trim('-')
+    }
+
+    return $safeValue
+}
+
+function Save-SharePointSiteManifest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$SiteEntry,
+
+        [Parameter(Mandatory)]
+        [int]$SiteIndex,
+
+        [Parameter(Mandatory)]
+        [int]$TotalSites,
+
+        [Parameter(Mandatory)]
+        [string]$SiteManifestDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$IndexDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$GeneratedAtUtc,
+
+        [Parameter(Mandatory)]
+        [string]$ApiMode,
+
+        [Parameter(Mandatory)]
+        [string[]]$ManifestTypes
+    )
+
+    $site = $SiteEntry.metadata
+    $siteLabel = $site.displayName ?? $site.name ?? $site.webUrl ?? $site.id
+    $safeSiteLabel = ConvertTo-SharePointManifestSafeFileName `
+        -Value $siteLabel `
+        -Fallback ('site-{0:0000}' -f $SiteIndex)
+    $siteFileName = '{0:0000}-{1}.json' -f $SiteIndex, $safeSiteLabel
+    $sitePath = Join-Path -Path $SiteManifestDirectory -ChildPath $siteFileName
+
+    $driveCount = @($SiteEntry.drives).Count
+    $driveItemCount = 0
+    $driveErrorCount = 0
+
+    foreach ($driveEntry in @($SiteEntry.drives)) {
+        $driveItemCount += @($driveEntry.items).Count
+
+        if ($null -ne $driveEntry.error) {
+            $driveErrorCount++
+        }
+    }
+
+    $listCount = @($SiteEntry.lists).Count
+    $listItemCount = 0
+    $skippedListCount = 0
+    $listErrorCount = 0
+
+    foreach ($listEntry in @($SiteEntry.lists)) {
+        $listItemCount += @($listEntry.items).Count
+
+        if ($listEntry.itemEnumerationSkipped) {
+            $skippedListCount++
+        }
+
+        $listErrorCount += @($listEntry.errors).Count
+    }
+
+    $siteErrorCount = @($SiteEntry.errors).Count + $driveErrorCount + $listErrorCount
+    $siteCounts = [ordered]@{
+        sites        = 1
+        drives       = $driveCount
+        driveItems   = $driveItemCount
+        lists        = $listCount
+        listItems    = $listItemCount
+        skippedLists = $skippedListCount
+        errors       = $siteErrorCount
+    }
+
+    $siteManifest = [ordered]@{
+        schemaVersion  = '1.1'
+        layout         = 'Site'
+        generatedAtUtc = $GeneratedAtUtc
+        apiMode        = $ApiMode
+        manifestTypes  = $ManifestTypes
+        counts         = $siteCounts
+        sites          = @($SiteEntry)
+    }
+
+    Write-Host "  Writing site manifest: $sitePath" -ForegroundColor DarkCyan
+
+    [System.IO.File]::WriteAllText(
+        $sitePath,
+        ($siteManifest | ConvertTo-Json -Depth 100),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+
+    $relativePath = Join-Path `
+        -Path (Split-Path -Leaf $SiteManifestDirectory) `
+        -ChildPath $siteFileName
+
+    [pscustomobject]@{
+        siteId       = $site.id
+        siteName     = $siteLabel
+        siteWebUrl   = $site.webUrl
+        siteIndex    = $SiteIndex
+        totalSites   = $TotalSites
+        path         = $sitePath
+        relativePath = $relativePath
+        counts       = [pscustomobject]$siteCounts
+    }
+}
+
 function Export-SharePointMetadataManifest {
     [CmdletBinding()]
     param(
@@ -227,9 +366,24 @@ function Export-SharePointMetadataManifest {
     else {
         @($requestedTypes | Where-Object { $_ -ne 'All' })
     }
+    $fullOutputPath = Resolve-SharePointManifestOutputPath -OutputPath $OutputPath
+    $outputDirectory = Split-Path -Parent $fullOutputPath
+    $outputBaseName = [System.IO.Path]::GetFileNameWithoutExtension($fullOutputPath)
+    $siteManifestDirectory = Join-Path `
+        -Path $outputDirectory `
+        -ChildPath ('{0}-sites' -f $outputBaseName)
+
+    if (-not (Test-Path -LiteralPath $outputDirectory)) {
+        $null = New-Item -ItemType Directory -Path $outputDirectory -Force
+    }
+
+    if (-not (Test-Path -LiteralPath $siteManifestDirectory)) {
+        $null = New-Item -ItemType Directory -Path $siteManifestDirectory -Force
+    }
 
     $manifest = [ordered]@{
-        schemaVersion  = '1.0'
+        schemaVersion  = '1.1'
+        layout         = 'PerSite'
         generatedAtUtc = [datetime]::UtcNow.ToString('o')
         apiMode        = $ApiMode
         manifestTypes  = $resolvedTypes
@@ -249,8 +403,10 @@ function Export-SharePointMetadataManifest {
             skippedLists = 0
             errors       = 0
         }
-        sites     = [System.Collections.Generic.List[object]]::new()
-        errors    = [System.Collections.Generic.List[object]]::new()
+        siteManifestDirectory = $siteManifestDirectory
+        siteManifests         = [System.Collections.Generic.List[object]]::new()
+        sites                 = @()
+        errors                = [System.Collections.Generic.List[object]]::new()
     }
 
     Write-Host "Discovering SharePoint sites..." -ForegroundColor Cyan
@@ -335,7 +491,16 @@ function Export-SharePointMetadataManifest {
                     message    = 'The site response did not contain webUrl.'
                 })
                 $manifest.counts.errors++
-                $manifest.sites.Add($siteEntry)
+                $siteManifestIndex = Save-SharePointSiteManifest `
+                    -SiteEntry $siteEntry `
+                    -SiteIndex $siteIndex `
+                    -TotalSites $totalSites `
+                    -SiteManifestDirectory $siteManifestDirectory `
+                    -IndexDirectory $outputDirectory `
+                    -GeneratedAtUtc $manifest.generatedAtUtc `
+                    -ApiMode $ApiMode `
+                    -ManifestTypes $resolvedTypes
+                $manifest.siteManifests.Add($siteManifestIndex)
                 continue
             }
 
@@ -520,7 +685,16 @@ function Export-SharePointMetadataManifest {
             }
         }
 
-        $manifest.sites.Add($siteEntry)
+        $siteManifestIndex = Save-SharePointSiteManifest `
+            -SiteEntry $siteEntry `
+            -SiteIndex $siteIndex `
+            -TotalSites $totalSites `
+            -SiteManifestDirectory $siteManifestDirectory `
+            -IndexDirectory $outputDirectory `
+            -GeneratedAtUtc $manifest.generatedAtUtc `
+            -ApiMode $ApiMode `
+            -ManifestTypes $resolvedTypes
+        $manifest.siteManifests.Add($siteManifestIndex)
     }
 
     $fullOutputPath = Resolve-SharePointManifestOutputPath -OutputPath $OutputPath
@@ -579,8 +753,41 @@ function Import-SharePointManifestSet {
         [System.IO.Path]::GetFullPath($_)
     })
 
-    $manifests = foreach ($path in $paths) {
-        Import-SharePointManifestJson -Path $path
+    $manifestList = [System.Collections.Generic.List[object]]::new()
+    $countSourceManifestList = [System.Collections.Generic.List[object]]::new()
+    $allPathList = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($path in $paths) {
+        $manifest = Import-SharePointManifestJson -Path $path
+        $allPathList.Add($path)
+
+        if ($manifest.layout -eq 'PerSite' -and $manifest.siteManifests) {
+            $countSourceManifestList.Add($manifest)
+            $indexDirectory = Split-Path -Parent $path
+
+            foreach ($siteManifestRef in @($manifest.siteManifests)) {
+                $siteManifestPath = $siteManifestRef.path
+
+                if (
+                    [string]::IsNullOrWhiteSpace($siteManifestPath) -or
+                    -not (Test-Path -LiteralPath $siteManifestPath -PathType Leaf)
+                ) {
+                    $siteManifestPath = Join-Path `
+                        -Path $indexDirectory `
+                        -ChildPath $siteManifestRef.relativePath
+                }
+
+                $siteManifestPath = [System.IO.Path]::GetFullPath($siteManifestPath)
+                $siteManifest = Import-SharePointManifestJson -Path $siteManifestPath
+
+                $manifestList.Add($siteManifest)
+                $allPathList.Add($siteManifestPath)
+            }
+        }
+        else {
+            $manifestList.Add($manifest)
+            $countSourceManifestList.Add($manifest)
+        }
     }
 
     $counts = [ordered]@{
@@ -592,7 +799,7 @@ function Import-SharePointManifestSet {
         errors     = 0
     }
 
-    foreach ($manifest in $manifests) {
+    foreach ($manifest in $countSourceManifestList) {
         if ($manifest.counts) {
             $counts.sites      += [int]($manifest.counts.sites ?? 0)
             $counts.drives     += [int]($manifest.counts.drives ?? 0)
@@ -605,8 +812,8 @@ function Import-SharePointManifestSet {
 
     [pscustomobject]@{
         ManifestDir = $ManifestDir
-        Paths       = $paths
-        Manifests   = @($manifests)
+        Paths       = $allPathList.ToArray()
+        Manifests   = $manifestList.ToArray()
         Counts      = [pscustomobject]$counts
     }
 }

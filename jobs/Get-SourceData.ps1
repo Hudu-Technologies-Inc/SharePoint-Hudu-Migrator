@@ -7,7 +7,7 @@ foreach ($site in $sourceSites) {
         $drives = if ($null -ne $SourceDataDrives) {
             @($SourceDataDrives)
         } else {
-            @(Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/drive" -Method Get)
+            @(Invoke-RestMethod -Headers (Update-SharePointAccessToken) -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/drive" -Method Get)
         }
 
         $safeSiteName = ($site.name -replace '[^\w\-]', '_')

@@ -81,6 +81,8 @@ function Invoke-SharePointManifestPagedRequest {
         [Parameter(Mandatory)]
         [hashtable]$Headers,
 
+        [scriptblock]$RefreshHeaders,
+
         [ValidateRange(0, 20)]
         [int]$MaxRetries = 6,
 
@@ -100,6 +102,10 @@ function Invoke-SharePointManifestPagedRequest {
 
         while ($true) {
             try {
+                if ($RefreshHeaders) {
+                    $Headers = & $RefreshHeaders
+                }
+
                 $response = Invoke-RestMethod `
                     -Method Get `
                     -Uri $nextUri `
@@ -331,6 +337,8 @@ function Export-SharePointMetadataManifest {
         [Parameter(Mandatory)]
         [hashtable]$Headers,
 
+        [scriptblock]$RefreshHeaders,
+
         [ValidateSet('Graph', 'SharePointV2')]
         [string]$ApiMode = 'Graph',
 
@@ -423,6 +431,7 @@ function Export-SharePointMetadataManifest {
             $siteResponse = Invoke-SharePointManifestPagedRequest `
                 -Uri $siteDiscoveryUri `
                 -Headers $Headers `
+                -RefreshHeaders $RefreshHeaders `
                 -StatusLabel 'Site discovery'
 
             $manifest.discovery = [ordered]@{
@@ -443,6 +452,7 @@ function Export-SharePointMetadataManifest {
             $siteResponse = Invoke-SharePointManifestPagedRequest `
                 -Uri $siteDiscoveryUri `
                 -Headers $Headers `
+                -RefreshHeaders $RefreshHeaders `
                 -StatusLabel 'Site discovery fallback'
 
             $manifest.discovery = [ordered]@{
@@ -458,6 +468,7 @@ function Export-SharePointMetadataManifest {
         $siteResponse = Invoke-SharePointManifestPagedRequest `
             -Uri $siteDiscoveryUri `
             -Headers $Headers `
+            -RefreshHeaders $RefreshHeaders `
             -StatusLabel 'Site discovery'
 
         $manifest.discovery = [ordered]@{
@@ -540,6 +551,7 @@ function Export-SharePointMetadataManifest {
                 $driveResponse = Invoke-SharePointManifestPagedRequest `
                     -Uri $drivesUri `
                     -Headers $Headers `
+                    -RefreshHeaders $RefreshHeaders `
                     -StatusLabel "Drives for $siteLabel"
 
                 $totalDrives = @($driveResponse.Items).Count
@@ -565,6 +577,7 @@ function Export-SharePointMetadataManifest {
                         $driveItemsResponse = Invoke-SharePointManifestPagedRequest `
                             -Uri $driveItemsUri `
                             -Headers $Headers `
+                            -RefreshHeaders $RefreshHeaders `
                             -StatusLabel "Drive metadata for $driveLabel"
 
                         $driveEntry.items     = $driveItemsResponse.Items
@@ -610,6 +623,7 @@ function Export-SharePointMetadataManifest {
                 $listResponse = Invoke-SharePointManifestPagedRequest `
                     -Uri $listsUri `
                     -Headers $Headers `
+                    -RefreshHeaders $RefreshHeaders `
                     -StatusLabel "Lists for $siteLabel"
 
                 $totalLists = @($listResponse.Items).Count
@@ -643,7 +657,8 @@ function Export-SharePointMetadataManifest {
                         $listEntry.columns = (
                             Invoke-SharePointManifestPagedRequest `
                                 -Uri $listColumnsUri `
-                                -Headers $Headers
+                                -Headers $Headers `
+                                -RefreshHeaders $RefreshHeaders
                         ).Items
                     }
                     catch {
@@ -658,7 +673,8 @@ function Export-SharePointMetadataManifest {
                         $listEntry.contentTypes = (
                             Invoke-SharePointManifestPagedRequest `
                                 -Uri $listContentTypesUri `
-                                -Headers $Headers
+                                -Headers $Headers `
+                                -RefreshHeaders $RefreshHeaders
                         ).Items
                     }
                     catch {
@@ -686,6 +702,7 @@ function Export-SharePointMetadataManifest {
                         $listItemsResponse = Invoke-SharePointManifestPagedRequest `
                             -Uri $listItemsUri `
                             -Headers $Headers `
+                            -RefreshHeaders $RefreshHeaders `
                             -StatusLabel "Item fields for $listLabel"
 
                         $listEntry.items = $listItemsResponse.Items
@@ -847,6 +864,8 @@ function Initialize-SharePointManifestSet {
     param(
         [hashtable]$Headers = $GraphHeaders,
 
+        [scriptblock]$RefreshHeaders,
+
         [ValidateSet('Graph', 'SharePointV2')]
         [string]$ApiMode = 'Graph',
 
@@ -910,6 +929,7 @@ function Initialize-SharePointManifestSet {
 
         $generatorParams = @{
             Headers                         = $Headers
+            RefreshHeaders                  = $RefreshHeaders
             ApiMode                         = $ApiMode
             ManifestType                    = $ManifestType
             OutputPath                      = $manifestPath

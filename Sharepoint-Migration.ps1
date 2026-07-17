@@ -50,12 +50,13 @@ $tenantId = $tenantId ?? $registration.tenantId
 Start-Process "https://microsoft.com/devicelogin"
 $tokenResult = $tokenResult ?? $(Get-MsalToken -ClientId $clientId -TenantId $tenantId -DeviceCode -Scopes $scopes)
 $accessToken = $accessToken ?? $tokenResult.AccessToken
-$SharePointHeaders = @{ Authorization = "Bearer $accessToken" }
+$SharePointHeaders = Update-SharePointAccessToken
 
 $manifestParams = @{
     ManifestMode = 'Auto'
     ManifestDir  = ".\out\sharepoint-manifests"
     Headers      = $SharePointHeaders
+    RefreshHeaders = { Update-SharePointAccessToken }
     FirstSiteOnly = $SharePointManifestFirstSiteOnly ?? $false
 }
 if ($null -ne $SharePointManifestMaxSites -and $SharePointManifestMaxSites -gt 0) {$manifestParams.MaxSites = $SharePointManifestMaxSites}

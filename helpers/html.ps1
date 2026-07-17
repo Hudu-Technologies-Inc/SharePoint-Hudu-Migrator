@@ -20,7 +20,7 @@ function Get-AttachmentLink {
                 [PSCustomObject]$sourceFile
     )
 
-return $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
+return $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments -or $sourceFile.UploadAsFile) {
 if ($sourceFile.FileTooLarge) {
     $sourceUrl = $sourceFile.webViewUrl
     if (-not $sourceUrl) {
@@ -129,6 +129,43 @@ function Get-GeneratedAttachmentLinkLargeDocs {
     $link
     
   </p>
+</body>
+</html>
+"@
+
+    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    return $outputFile
+}
+
+function Get-GeneratedUploadAsFileHTML {
+    param (
+        [Parameter(Mandatory)]
+        [PSCustomObject]$sourceFile,
+
+        [Parameter(Mandatory)]
+        [string]$outputFile
+    )
+
+    $filename = [System.IO.Path]::GetFileName($sourceFile.LocalPath)
+    $safeFilename = [System.Web.HttpUtility]::HtmlEncode($filename)
+    $title = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
+    $site = [System.Web.HttpUtility]::HtmlEncode($sourceFile.SiteName)
+
+    $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+</head>
+<body>
+  <h1>$title</h1>
+  <p>
+    <strong>Site:</strong> $site<br />
+    <strong>File:</strong> $safeFilename
+  </p>
+  $SHAREPOINT_URL_DELIMITER
+  <p>$HUDU_LOCALATTACHMENT_DELIMITER</p>
 </body>
 </html>
 "@

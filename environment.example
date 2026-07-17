@@ -17,4 +17,8 @@ $huduapikey = ""
 # files after each site. Useful for runners with limited free disk space.
 # $SharePointLowDiskMode = $true
 
+# Optional: upload PDFs as attached files on stub articles instead of converting
+# them. Article names keep the .pdf extension for post-run is_upload updates.
+# $SharePointPdfUploadAsFile = $true
+
 . .\Sharepoint-Migration.ps1

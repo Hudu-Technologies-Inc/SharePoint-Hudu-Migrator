@@ -67,6 +67,7 @@ $RunSummary=@{
         RunDuration         = $null
         PreviewLength       = 2500
         LowDiskMode         = [bool]($SharePointLowDiskMode ?? $false)
+        PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
         DisallowedForConvert = [System.Collections.ArrayList]@(
             ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a",
             ".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj",

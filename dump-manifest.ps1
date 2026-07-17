@@ -23,6 +23,11 @@ param(
 
     [switch]$ListMetadataOnly,
 
+    [ValidateRange(0, [int]::MaxValue)]
+    [int]$MaxSites = 0,
+
+    [switch]$FirstSiteOnly,
+
     [switch]$Force,
 
     [switch]$SkipWorkQueue
@@ -39,6 +44,8 @@ $manifestSetParams = @{
     ManifestDir                     = $ManifestDir
     IncludeDocumentLibraryListItems = $IncludeDocumentLibraryListItems
     ListMetadataOnly                = $ListMetadataOnly
+    MaxSites                        = $MaxSites
+    FirstSiteOnly                   = $FirstSiteOnly
     Force                           = $Force
 }
 

@@ -344,7 +344,12 @@ function Export-SharePointMetadataManifest {
 
         [switch]$IncludeDocumentLibraryListItems,
 
-        [switch]$ListMetadataOnly
+        [switch]$ListMetadataOnly,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxSites = 0,
+
+        [switch]$FirstSiteOnly
     )
 
     if ($null -eq $Headers -or -not $Headers.ContainsKey('Authorization')) {
@@ -461,11 +466,30 @@ function Export-SharePointMetadataManifest {
         }
     }
 
-    $totalSites = @($siteResponse.Items).Count
-    Write-Host "Discovered $totalSites site(s)." -ForegroundColor Cyan
+    if ($FirstSiteOnly) {
+        $MaxSites = 1
+    }
+
+    $discoveredSiteCount = @($siteResponse.Items).Count
+    $sitesToProcess = if ($MaxSites -gt 0) {
+        @($siteResponse.Items | Select-Object -First $MaxSites)
+    }
+    else {
+        @($siteResponse.Items)
+    }
+
+    $totalSites = @($sitesToProcess).Count
+
+    if ($MaxSites -gt 0) {
+        Write-Host "Discovered $discoveredSiteCount site(s). Test run will process first $totalSites." -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "Discovered $totalSites site(s)." -ForegroundColor Cyan
+    }
+
     $siteIndex = 0
 
-    foreach ($site in $siteResponse.Items) {
+    foreach ($site in $sitesToProcess) {
         $siteIndex++
         $manifest.counts.sites++
 
@@ -843,6 +867,11 @@ function Initialize-SharePointManifestSet {
 
         [switch]$ListMetadataOnly,
 
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxSites = 0,
+
+        [switch]$FirstSiteOnly,
+
         [switch]$Force
     )
 
@@ -886,6 +915,8 @@ function Initialize-SharePointManifestSet {
             OutputPath                      = $manifestPath
             IncludeDocumentLibraryListItems = $IncludeDocumentLibraryListItems
             ListMetadataOnly                = $ListMetadataOnly
+            MaxSites                        = $MaxSites
+            FirstSiteOnly                   = $FirstSiteOnly
         }
 
         if (-not [string]::IsNullOrWhiteSpace($TenantName)) {

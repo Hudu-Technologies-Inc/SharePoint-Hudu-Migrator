@@ -46,10 +46,21 @@ $tokenResult = $tokenResult ?? $(Get-MsalToken -ClientId $clientId -TenantId $te
 $accessToken = $accessToken ?? $tokenResult.AccessToken
 $SharePointHeaders = @{ Authorization = "Bearer $accessToken" }
 
-$manifestSet = Initialize-SharePointManifestSet `
-    -ManifestMode Auto `
-    -ManifestDir ".\out\sharepoint-manifests" `
-    -Headers $SharePointHeaders
+$manifestParams = @{
+    ManifestMode = 'Auto'
+    ManifestDir  = ".\out\sharepoint-manifests"
+    Headers      = $SharePointHeaders
+}
+
+if ($SharePointManifestMaxSites -gt 0) {
+    $manifestParams.MaxSites = $SharePointManifestMaxSites
+}
+
+if ($SharePointManifestFirstSiteOnly) {
+    $manifestParams.FirstSiteOnly = $true
+}
+
+$manifestSet = Initialize-SharePointManifestSet @manifestParams
 
 $workItems = @(ConvertFrom-SharePointManifestSet -ManifestSet $manifestSet)
 

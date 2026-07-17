@@ -266,3 +266,70 @@ function Get-SafeTitle {
     return $safe
 }
 
+function Clear-SharePointBatchWorkingFiles {
+    param (
+        [array]$Files = @(),
+        [string]$SiteRootPath,
+        [string]$TempPath
+    )
+
+    $pathsToRemove = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in @($Files)) {
+        foreach ($propertyName in @('LocalPath', 'NewPath')) {
+            if ($file.PSObject.Properties[$propertyName] -and $file.$propertyName) {
+                [void]$pathsToRemove.Add([string]$file.$propertyName)
+            }
+        }
+
+        foreach ($propertyName in @('ExternalFiles', 'Base64ImagesWritten', 'AllAttachments')) {
+            if (-not $file.PSObject.Properties[$propertyName]) { continue }
+            foreach ($path in @($file.$propertyName)) {
+                if ($path) {
+                    [void]$pathsToRemove.Add([string]$path)
+                }
+            }
+        }
+    }
+
+    foreach ($path in $pathsToRemove) {
+        try {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+            }
+        } catch {
+            Set-PrintAndLog -message "Failed to clear working file $path`: $($_.Exception.Message)" -Color Yellow
+        }
+    }
+
+    if ($SiteRootPath -and (Test-Path -LiteralPath $SiteRootPath)) {
+        try {
+            $resolvedSiteRoot = (Resolve-Path -LiteralPath $SiteRootPath).Path
+            $resolvedAllSitesRoot = (Resolve-Path -LiteralPath $allSitesfolder).Path
+            $normalizedAllSitesRoot = $resolvedAllSitesRoot.TrimEnd('\')
+            $isChildSiteFolder = (
+                -not [string]::Equals($resolvedSiteRoot.TrimEnd('\'), $normalizedAllSitesRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
+                $resolvedSiteRoot.StartsWith("$normalizedAllSitesRoot\", [System.StringComparison]::OrdinalIgnoreCase)
+            )
+
+            if ($isChildSiteFolder) {
+                Remove-Item -LiteralPath $resolvedSiteRoot -Recurse -Force -ErrorAction Stop
+                Set-PrintAndLog -message "Cleared site working folder: $resolvedSiteRoot" -Color DarkCyan
+            } else {
+                Set-PrintAndLog -message "Refusing to clear site folder outside all-sites root: $resolvedSiteRoot" -Color Red
+            }
+        } catch {
+            Set-PrintAndLog -message "Failed to clear site working folder $SiteRootPath`: $($_.Exception.Message)" -Color Yellow
+        }
+    }
+
+    if ($TempPath -and (Test-Path -LiteralPath $TempPath)) {
+        try {
+            Get-ChildItem -LiteralPath $TempPath -File -Force -ErrorAction Stop |
+                Remove-Item -Force -ErrorAction Stop
+            Set-PrintAndLog -message "Cleared top-level temp files in $TempPath" -Color DarkCyan
+        } catch {
+            Set-PrintAndLog -message "Failed to clear temp files in $TempPath`: $($_.Exception.Message)" -Color Yellow
+        }
+    }
+}
+

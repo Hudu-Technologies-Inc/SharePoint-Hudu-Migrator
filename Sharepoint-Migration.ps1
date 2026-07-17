@@ -17,6 +17,8 @@ $scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 $userSelectedSites = [System.Collections.ArrayList]@()
 $AllDiscoveredFiles = [System.Collections.ArrayList]@()
 $AllDiscoveredFolders = [System.Collections.ArrayList]@()
+$AllProcessedDiscoveredFiles = [System.Collections.ArrayList]@()
+$AllProcessedDiscoveredFolders = [System.Collections.ArrayList]@()
 $IndexOnlyFiles = [System.Collections.ArrayList]@()
 $IndexOnlyArticles = [System.Collections.ArrayList]@()
 $Attribution_Options=[System.Collections.ArrayList]@()
@@ -75,15 +77,6 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1
 
-##### Step 3, Get Source Data from Selection
-##
-#
-Set-IncrementedState -newState "Download From Selection"
-. .\jobs\Get-SourceData.ps1
-Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
-$AllDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
-$AllDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
-
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##
 #
@@ -94,30 +87,87 @@ Set-PrintAndLog "Checking for Libreoffice and installing if not present. If not 
 $sofficePath=$(if ($true -eq $portableLibreOffice) {$(Get-LibrePortable -tmpfolder $tmpfolder)} else {$(Get-LibreMSI -tmpfolder $tmpfolder)})
 Stop-LibreOffice
 
-# Step 4.2 Convert Files
-Set-IncrementedState -newState "Convert Eligible Files"
-$successConverted=$(ConvertDownloadedFiles -downloadedFiles $AllDiscoveredFiles -sofficePath $sofficePath)
+function Invoke-SharePointMigrationFileBatch {
+    param (
+        [Parameter(Mandatory)] [array]$Sites,
+        [Parameter(Mandatory)] [string]$BatchName,
+        [Parameter(Mandatory)] [string]$SofficePath,
+        [switch]$CleanupAfterBatch
+    )
 
-Set-IncrementedState -newState "Read Now-Converted File Contents"
-. .\jobs\Read-ConvertedContents.ps1
+    $AllDiscoveredFiles = [System.Collections.ArrayList]@()
+    $AllDiscoveredFolders = [System.Collections.ArrayList]@()
+    $IndexOnlyFiles = [System.Collections.ArrayList]@()
+    $IndexOnlyArticles = [System.Collections.ArrayList]@()
+    $StubbedArticles = @()
+    $successConverted = @()
 
-##### Step 5, create articles, uploads, folders, then relink articles
-##
-#
-Set-IncrementedState -newState "Create index-only file articles"
-. .\jobs\Make-IndexOnlyArticles.ps1
+    $SourceDataSites = [System.Collections.ArrayList]@()
+    [void]$SourceDataSites.AddRange(@($Sites))
 
-Set-IncrementedState -newState "Determine Company Designations and Folder Structure"
-. .\jobs\Make-ArticleStubs.ps1
+    Set-IncrementedState -newState "Download From Selection - $BatchName"
+    . .\jobs\Get-SourceData.ps1
 
-Set-IncrementedState -newState "Populate initial data into articles"
-. .\jobs\Populate-Articles.ps1
+    if ($AllDiscoveredFiles.Count -gt 0) {
+        [void]$AllProcessedDiscoveredFiles.AddRange($AllDiscoveredFiles)
+    }
+    if ($AllDiscoveredFolders.Count -gt 0) {
+        [void]$AllProcessedDiscoveredFolders.AddRange($AllDiscoveredFolders)
+    }
 
-Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu"
-. .\jobs\Upload-Images.ps1
+    Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
+    $AllProcessedDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
+    $AllProcessedDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
 
-Set-IncrementedState -newState "Relink Articles"
-. .\jobs\Relink-Articles.ps1
+    Set-IncrementedState -newState "Convert Eligible Files - $BatchName"
+    $successConverted = @(ConvertDownloadedFiles -downloadedFiles $AllDiscoveredFiles -sofficePath $SofficePath)
+
+    Set-IncrementedState -newState "Read Now-Converted File Contents - $BatchName"
+    . .\jobs\Read-ConvertedContents.ps1
+
+    Set-IncrementedState -newState "Create index-only file articles - $BatchName"
+    . .\jobs\Make-IndexOnlyArticles.ps1
+
+    Set-IncrementedState -newState "Determine Company Designations and Folder Structure - $BatchName"
+    . .\jobs\Make-ArticleStubs.ps1
+
+    Set-IncrementedState -newState "Populate initial data into articles - $BatchName"
+    . .\jobs\Populate-Articles.ps1
+
+    Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu - $BatchName"
+    . .\jobs\Upload-Images.ps1
+
+    Set-IncrementedState -newState "Relink Articles - $BatchName"
+    . .\jobs\Relink-Articles.ps1
+
+    if ($CleanupAfterBatch) {
+        foreach ($site in @($Sites)) {
+            $safeSiteName = ($site.name -replace '[^\w\-]', '_')
+            $siteRootPath = Join-Path $allSitesfolder $safeSiteName
+            Clear-SharePointBatchWorkingFiles -Files @(@($AllDiscoveredFiles) + @($successConverted)) -SiteRootPath $siteRootPath -TempPath $tmpfolder
+        }
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+    }
+}
+
+if ($RunSummary.SetupInfo.LowDiskMode) {
+    Set-PrintAndLog -message "Low-disk mode enabled. Processing and cleaning one SharePoint site at a time." -Color Yellow
+    $siteIndex = 0
+    foreach ($site in $userSelectedSites) {
+        $siteIndex++
+        Invoke-SharePointMigrationFileBatch `
+            -Sites @($site) `
+            -BatchName "site $siteIndex/$($userSelectedSites.Count): $($site.name)" `
+            -SofficePath $sofficePath `
+            -CleanupAfterBatch
+    }
+} else {
+    Invoke-SharePointMigrationFileBatch `
+        -Sites @($userSelectedSites) `
+        -BatchName "all selected sites" `
+        -SofficePath $sofficePath
+}
 
 ##### Step 6, clean up vars, folders, appregistration and generate summary
 ##

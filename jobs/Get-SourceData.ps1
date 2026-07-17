@@ -1,5 +1,6 @@
 ##### Step 3, Get Source Data from Selection
-foreach ($site in $userSelectedSites) {
+$sourceSites = if ($null -ne $SourceDataSites) { $SourceDataSites } else { $userSelectedSites }
+foreach ($site in $sourceSites) {
     Write-Host "`nProcessing site: $($site.name)" -ForegroundColor Yellow
 
     try {

@@ -13,4 +13,8 @@ $huduapikey = ""
 # instead of being converted into one article per file.
 # $SharePointIndexOnlyExtensions = @(".eps", ".ai", ".psd", ".indd")
 
+# Optional: process one site at a time and clear downloaded/converted working
+# files after each site. Useful for runners with limited free disk space.
+# $SharePointLowDiskMode = $true
+
 . .\Sharepoint-Migration.ps1

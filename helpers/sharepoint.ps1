@@ -29,7 +29,18 @@ function Download-GraphDriveItemsRecursively {
         }
         elseif ($item.file) {
             $downloadUrl = $item."@microsoft.graph.downloadUrl"
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $itemPath -UseBasicParsing
+            $itemSize = [int64]($item.size ?? 0)
+            $fileTooLarge = $itemSize -ge 100MB
+            $downloadSkipped = $false
+
+            if ($fileTooLarge) {
+                $downloadSkipped = $true
+                Set-PrintAndLog -message "Skipping download for 100 MB or larger file; will link back to SharePoint: $itemPath" -Color Yellow
+            } else {
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $itemPath -UseBasicParsing
+                $itemSize = (Get-Item $itemPath).Length
+            }
+
             $relativePath = Split-Path -Path $itemPath -Parent
             $relativePath = $relativePath.Substring($allSitesfolder.Length).TrimStart('\')
             $originalLinks = @(
@@ -46,6 +57,7 @@ function Download-GraphDriveItemsRecursively {
                 DriveId             = $driveId
                 FolderId            = $folderId
                 DownloadUrl         = $item."@microsoft.graph.downloadUrl"
+                DownloadSkipped     = $downloadSkipped
                 webViewUrl          = $item.webUrl
                 webDAVUrl           = $item.webDavUrl
                 CreatedDateTime     = $item.createdDateTime
@@ -73,10 +85,12 @@ function Download-GraphDriveItemsRecursively {
                 title               = $(Get-SafeTitle -name $item.name)
                 Id                  = $item.id
                 RelativePath        = $relativePath 
-                Filesize            = (Get-Item $itemPath).Length
-                FileTooLarge        = ((Get-Item $itemPath).Length -ge 100MB)
+                Filesize            = $itemSize
+                FileTooLarge        = $fileTooLarge
             })
-            Set-PrintAndLog -message "Downloaded: $itemPath" -Color DarkMagenta
+            if (-not $downloadSkipped) {
+                Set-PrintAndLog -message "Downloaded: $itemPath" -Color DarkMagenta
+            }
         }
     }
     return $discoveredFiles

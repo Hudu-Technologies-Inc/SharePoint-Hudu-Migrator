@@ -2,10 +2,11 @@
 $FolderResolutionCache = @{}
 $BaseSitePath = (Get-Item $allSitesfolder).FullName
 Set-PrintAndLog -message "BaseSitePath set to $BaseSitePath" -Color Cyan
+$docsToStub = @($successConverted | Where-Object { $_.PSObject.Properties.Name -contains 'ContentPreview' -and $_.ContentPreview })
 $docIDX=0
-foreach ($doc in $successConverted | Where-Object { $_.PSObject.Properties.Name -contains 'ContentPreview' -and $_.ContentPreview }) {
+foreach ($doc in $docsToStub) {
     $docIDX += 1
-    $completionPercentage = Get-PercentDone -Current $docIDX -Total $Sourcedocs.count
+    $completionPercentage = Get-PercentDone -Current $docIDX -Total $docsToStub.count
 
     # Determine CompanyId
     switch ([int]$RunSummary.JobInfo.MigrationDest.Identifier) {

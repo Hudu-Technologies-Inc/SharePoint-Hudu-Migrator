@@ -246,6 +246,31 @@ function ConvertDownloadedFiles {
                 }
                 continue
             }
+            if ($file.FileTooLarge) {
+                Set-PrintAndLog -message "Source file is 100 MB or larger - generating link-back article without conversion." -Color Yellow
+                $sourceUrl = $file.webViewUrl
+                if (-not $sourceUrl) {
+                    $sourceUrl = @($file.OriginalLinks)[0]
+                }
+                $safeSourceUrl = [System.Web.HttpUtility]::HtmlAttributeEncode($sourceUrl)
+                $link = if ($sourceUrl) {
+                    "<br><a href='$safeSourceUrl' target='_blank'>View in SharePoint (100 MB or larger)</a>"
+                } else {
+                    ""
+                }
+                $note = "</p>File is 100 MB or larger and was not downloaded or attached to Hudu.</p>"
+                $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-link-only.html"
+                Get-GeneratedAttachmentLinkLargeDocs -sourceFile $file -outputFile $file.NewPath -link $link -note $note
+                $file.RawContent = Get-Content $file.NewPath -Raw
+                $file.ReplacedContent = $file.RawContent
+                $file.SuccessConverted = $false
+                $file.UsingGeneratedHTML = $true
+                $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $convertedbatch.Add($file) | Out-Null
+                continue
+            }
             # images as sharepoint file download
             if ($EmbeddableImageExtensions -contains $extension){
                 Set-PrintAndLog -message "Image extension: $extension — generating user-friendly HTML." -Color Yellow

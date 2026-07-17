@@ -2,6 +2,64 @@ if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'sharepoint\manifests.ps1'))
     . (Join-Path $PSScriptRoot 'sharepoint\manifests.ps1')
 }
 
+function Update-SharePointAccessToken {
+    param (
+        [switch]$Force,
+        [int]$RefreshWindowMinutes = 10
+    )
+
+    $nowUtc = (Get-Date).ToUniversalTime()
+    $expiresOnUtc = $null
+
+    if ($null -ne $script:tokenResult -and $null -ne $script:tokenResult.ExpiresOn) {
+        $expiresOnUtc = $script:tokenResult.ExpiresOn.UtcDateTime
+    }
+
+    $shouldRefresh = (
+        $Force -or
+        $null -eq $script:tokenResult -or
+        [string]::IsNullOrWhiteSpace([string]$script:tokenResult.AccessToken) -or
+        $null -eq $expiresOnUtc -or
+        $expiresOnUtc -le $nowUtc.AddMinutes($RefreshWindowMinutes)
+    )
+
+    if ($shouldRefresh) {
+        $previousExpiry = if ($expiresOnUtc) { $expiresOnUtc.ToString('u') } else { 'unknown' }
+        Set-PrintAndLog -message "Refreshing SharePoint Graph access token. Previous expiry: $previousExpiry" -Color DarkCyan
+
+        try {
+            $script:tokenResult = Get-MsalToken `
+                -ClientId $script:clientId `
+                -TenantId $script:tenantId `
+                -Scopes $script:scopes `
+                -Silent `
+                -ForceRefresh:$Force `
+                -ErrorAction Stop
+        } catch {
+            Set-PrintAndLog -message "Silent SharePoint token refresh failed; falling back to device code authentication. $($_.Exception.Message)" -Color Yellow
+            $script:tokenResult = Get-MsalToken `
+                -ClientId $script:clientId `
+                -TenantId $script:tenantId `
+                -DeviceCode `
+                -Scopes $script:scopes `
+                -ErrorAction Stop
+        }
+
+        $script:accessToken = $script:tokenResult.AccessToken
+        $script:SharePointHeaders = @{ Authorization = "Bearer $script:accessToken" }
+
+        if ($script:tokenResult.ExpiresOn) {
+            Set-PrintAndLog -message "SharePoint Graph access token refreshed. New expiry: $($script:tokenResult.ExpiresOn.UtcDateTime.ToString('u'))" -Color DarkCyan
+        }
+    }
+
+    if ($null -eq $script:SharePointHeaders -or -not $script:SharePointHeaders.ContainsKey('Authorization')) {
+        throw "SharePoint Graph authorization headers are not available."
+    }
+
+    return $script:SharePointHeaders
+}
+
 function Invoke-SharePointGraphCollection {
     param (
         [Parameter(Mandatory)]
@@ -12,7 +70,7 @@ function Invoke-SharePointGraphCollection {
     $nextUri = $Uri
 
     while ($nextUri) {
-        $response = Invoke-RestMethod -Headers $SharePointHeaders -Uri $nextUri -Method Get
+        $response = Invoke-RestMethod -Headers (Update-SharePointAccessToken) -Uri $nextUri -Method Get
         if ($response.value) {
             [void]$items.AddRange(@($response.value))
         }

@@ -78,6 +78,7 @@ $RunSummary=@{
         ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)
         ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)
         ClientAttributionMinGap = [int]($SharePointClientAttributionMinGap ?? 5)
+        ClientAttributionClientsPath = $($SharePointClientAttributionClientsPath ?? (Join-Path $workdir "clients.json"))
         SiteCompanyMinScore = [int]($SharePointSiteCompanyMinScore ?? 95)
         SiteCompanyMinGap = [int]($SharePointSiteCompanyMinGap ?? 5)
         SiteCompanyCreateMissing = [bool]($SharePointSiteCompanyCreateMissing ?? $true)

@@ -171,9 +171,85 @@ function Get-SharePointClientListEntries {
                         Provider         = $parsed.Provider
                         NormalizedName   = $parsed.NormalizedName
                         StrippedName     = $parsed.StrippedName
+                        AttributionSource = 'sharepoint_list'
                     }
                 }
             }
+        }
+    }
+}
+
+function Import-SharePointClientAttributionClientFile {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return @()
+    }
+
+    $raw = Get-Content -LiteralPath $Path -Raw
+    $values = @()
+
+    try {
+        $json = $raw | ConvertFrom-Json -ErrorAction Stop
+        if ($json.PSObject.Properties.Name -contains 'clients') {
+            $values = @($json.clients)
+        } elseif ($json.PSObject.Properties.Name -contains 'Clients') {
+            $values = @($json.Clients)
+        } elseif ($json.PSObject.Properties.Name -contains 'items') {
+            $values = @($json.items)
+        } elseif ($json.PSObject.Properties.Name -contains 'Items') {
+            $values = @($json.Items)
+        } elseif ($json -is [array]) {
+            $values = @($json)
+        } else {
+            $values = @($json)
+        }
+    } catch {
+        $values = @(
+            [regex]::Matches($raw, '"(?<value>(?:\\"|[^"])*)"') |
+                ForEach-Object {
+                    $_.Groups['value'].Value -replace '\\"', '"'
+                }
+        )
+    }
+
+    foreach ($value in $values) {
+        $title = if ($null -ne $value -and $value.PSObject.Properties.Name -contains 'title') {
+            [string]$value.title
+        } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains 'Title') {
+            [string]$value.Title
+        } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains 'name') {
+            [string]$value.name
+        } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains 'Name') {
+            [string]$value.Name
+        } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains 'clientName') {
+            [string]$value.clientName
+        } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains 'ClientName') {
+            [string]$value.ClientName
+        } else {
+            [string]$value
+        }
+
+        if ([string]::IsNullOrWhiteSpace($title)) { continue }
+        $parsed = ConvertFrom-SharePointClientTitle -Title $title
+        [PSCustomObject]@{
+            SharePointItemId = $null
+            ListName         = 'clients.json'
+            SiteName         = $null
+            SiteId           = $null
+            WebUrl           = $null
+            ClientActive     = $null
+            WhiteLabelled    = $null
+            RawTitle         = $parsed.RawTitle
+            ClientName       = $parsed.ClientName
+            ClientCode       = $parsed.ClientCode
+            Provider         = $parsed.Provider
+            NormalizedName   = $parsed.NormalizedName
+            StrippedName     = $parsed.StrippedName
+            AttributionSource = 'client_file'
         }
     }
 }
@@ -219,6 +295,57 @@ function Get-HuduCompanyAttributionCandidates {
     }
 }
 
+function New-HuduClientAttributionMapFromEntries {
+    param (
+        [Parameter(Mandatory)] [array]$Entries,
+        [Parameter(Mandatory)] [array]$Companies,
+        [int]$MinScore = 95,
+        [int]$MinGap = 5
+    )
+
+    foreach ($entry in @($Entries)) {
+        $candidates = @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
+        $best = $candidates | Select-Object -First 1
+        $second = $candidates | Select-Object -Skip 1 -First 1
+        $gap = if ($second) { [double]$best.Score - [double]$second.Score } elseif ($best) { [double]$best.Score } else { 0 }
+        $autoMatched = ($best -and [double]$best.Score -ge $MinScore -and $gap -ge $MinGap)
+        $aliases = [System.Collections.Generic.List[string]]::new()
+
+        foreach ($alias in @($entry.ClientName, $entry.StrippedName, $entry.RawTitle)) {
+            $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
+            if ($normalizedAlias -and $normalizedAlias.Length -ge 3 -and -not $aliases.Contains($normalizedAlias)) {
+                $aliases.Add($normalizedAlias)
+            }
+        }
+
+        $normalizedCode = ConvertTo-AttributionNormalizedText $entry.ClientCode
+
+        [PSCustomObject]@{
+            SharePointItemId      = $entry.SharePointItemId
+            ListName              = $entry.ListName
+            SiteName              = $entry.SiteName
+            SiteId                = $entry.SiteId
+            WebUrl                = $entry.WebUrl
+            AttributionSource     = $entry.AttributionSource
+            RawTitle              = $entry.RawTitle
+            ClientName            = $entry.ClientName
+            ClientCode            = $entry.ClientCode
+            NormalizedClientCode = $normalizedCode
+            Provider              = $entry.Provider
+            ClientActive          = $entry.ClientActive
+            HuduCompanyId         = $best.CompanyId
+            HuduCompanyName       = $best.CompanyName
+            Confidence            = if ($best) { [double]$best.Score } else { 0 }
+            ConfidenceGap         = [double]$gap
+            MatchReason           = $best.Reason
+            AutoMatched           = [bool]$autoMatched
+            MatchStatus           = if ($autoMatched) { 'Auto' } elseif ($best) { 'Review' } else { 'NoMatch' }
+            Aliases               = @($aliases)
+            TopCandidates         = @($candidates | Select-Object -First 5)
+        }
+    }
+}
+
 function New-SharePointClientAttributionMap {
     param (
         [Parameter(Mandatory)] $ManifestSet,
@@ -229,39 +356,7 @@ function New-SharePointClientAttributionMap {
     )
 
     $entries = @(Get-SharePointClientListEntries -ManifestSet $ManifestSet -ListNames $ListNames)
-    foreach ($entry in $entries) {
-        $candidates = @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
-        $best = $candidates | Select-Object -First 1
-        $second = $candidates | Select-Object -Skip 1 -First 1
-        $gap = if ($second) { [double]$best.Score - [double]$second.Score } else { [double]$best.Score }
-        $autoMatched = ($best -and [double]$best.Score -ge $MinScore -and $gap -ge $MinGap)
-        $aliases = [System.Collections.Generic.List[string]]::new()
-
-        foreach ($alias in @($entry.ClientName, $entry.StrippedName, $entry.ClientCode, $entry.RawTitle)) {
-            $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
-            if ($normalizedAlias -and $normalizedAlias.Length -ge 3 -and -not $aliases.Contains($normalizedAlias)) {
-                $aliases.Add($normalizedAlias)
-            }
-        }
-
-        [PSCustomObject]@{
-            SharePointItemId = $entry.SharePointItemId
-            RawTitle         = $entry.RawTitle
-            ClientName       = $entry.ClientName
-            ClientCode       = $entry.ClientCode
-            Provider         = $entry.Provider
-            ClientActive     = $entry.ClientActive
-            HuduCompanyId    = $best.CompanyId
-            HuduCompanyName  = $best.CompanyName
-            Confidence       = [double]$best.Score
-            ConfidenceGap    = [double]$gap
-            MatchReason      = $best.Reason
-            AutoMatched      = [bool]$autoMatched
-            MatchStatus      = if ($autoMatched) { 'Auto' } elseif ($best) { 'Review' } else { 'NoMatch' }
-            Aliases          = @($aliases)
-            TopCandidates    = @($candidates | Select-Object -First 5)
-        }
-    }
+    New-HuduClientAttributionMapFromEntries -Entries $entries -Companies $Companies -MinScore $MinScore -MinGap $MinGap
 }
 
 function Resolve-HuduCompanyFromSharePointAttributionMap {
@@ -277,9 +372,23 @@ function Resolve-HuduCompanyFromSharePointAttributionMap {
 
     $normalizedSource = ConvertTo-AttributionNormalizedText $SourceText
     if (-not $normalizedSource) { return $null }
+    $sourceTokens = @($normalizedSource -split '\s+' | Where-Object { $_ })
 
     $matches = foreach ($entry in @($AttributionMap)) {
         if ($AutoOnly -and -not $entry.AutoMatched) { continue }
+
+        $normalizedCode = ConvertTo-AttributionNormalizedText ($entry.NormalizedClientCode ?? $entry.ClientCode)
+        if ($normalizedCode -and $normalizedCode.Length -ge 2 -and $sourceTokens -contains $normalizedCode) {
+            [PSCustomObject]@{
+                Entry       = $entry
+                Alias       = $normalizedCode
+                AliasLength = $normalizedCode.Length
+                Confidence  = [Math]::Max([double]$entry.Confidence, 99)
+                Reason      = 'exact_client_code_in_source'
+            }
+            continue
+        }
+
         foreach ($alias in @($entry.Aliases)) {
             $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
             if (-not $normalizedAlias -or $normalizedAlias.Length -lt 3) { continue }
@@ -289,6 +398,7 @@ function Resolve-HuduCompanyFromSharePointAttributionMap {
                     Alias       = $normalizedAlias
                     AliasLength = $normalizedAlias.Length
                     Confidence  = [double]$entry.Confidence
+                    Reason      = 'alias_in_source'
                 }
             }
         }

@@ -17,3 +17,5 @@ jsondump*
 jsondump/*
 plan.notes
 out/*
+clients.json
+clients*

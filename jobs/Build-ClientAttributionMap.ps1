@@ -6,33 +6,77 @@ if (-not $RunSummary.SetupInfo.ClientAttributionEnabled) {
     return
 }
 
-if ($null -eq $manifestSet) {
-    Set-PrintAndLog -message "No SharePoint manifest set is available; skipping client attribution matching." -Color Yellow
-    $ClientAttributionMap = @()
-    return
-}
-
 if ($null -eq $AllCompanies -or $AllCompanies.Count -eq 0) {
     Set-PrintAndLog -message "No Hudu companies are available; skipping client attribution matching." -Color Yellow
     $ClientAttributionMap = @()
     return
 }
 
-Set-PrintAndLog -message "Building SharePoint client attribution map from list(s): $($RunSummary.SetupInfo.ClientAttributionListNames -join ', ')" -Color Cyan
+$clientAttributionEntries = @()
+$clientAttributionSource = $null
+$clientsPath = $RunSummary.SetupInfo.ClientAttributionClientsPath
 
-$ClientAttributionMap = @(
-    New-SharePointClientAttributionMap `
-        -ManifestSet $manifestSet `
-        -Companies $AllCompanies `
-        -ListNames $RunSummary.SetupInfo.ClientAttributionListNames `
-        -MinScore $RunSummary.SetupInfo.ClientAttributionMinScore `
-        -MinGap $RunSummary.SetupInfo.ClientAttributionMinGap
-)
+if (-not [string]::IsNullOrWhiteSpace([string]$clientsPath)) {
+    $resolvedClientsPath = if ([System.IO.Path]::IsPathRooted([string]$clientsPath)) {
+        [string]$clientsPath
+    } else {
+        Join-Path $workdir ([string]$clientsPath)
+    }
+
+    if (Test-Path -LiteralPath $resolvedClientsPath -PathType Leaf) {
+        Set-PrintAndLog -message "Loading predetermined SharePoint client list: $resolvedClientsPath" -Color Cyan
+        $clientAttributionEntries = @(Import-SharePointClientAttributionClientFile -Path $resolvedClientsPath)
+        if ($clientAttributionEntries.Count -gt 0) {
+            $clientAttributionSource = "client file: $resolvedClientsPath"
+            foreach ($clientAttributionEntry in $clientAttributionEntries) {
+                $clientAttributionEntry | Add-Member -MemberType NoteProperty -Name AttributionSource -Value $clientAttributionSource -Force
+            }
+        } else {
+            Set-PrintAndLog -message "Predetermined SharePoint client list was empty; falling back to manifest list(s)." -Color Yellow
+        }
+    } else {
+        Set-PrintAndLog -message "Predetermined SharePoint client list not found at $resolvedClientsPath; falling back to manifest list(s)." -Color DarkGray
+    }
+}
+
+if ($clientAttributionEntries.Count -gt 0) {
+    Set-PrintAndLog -message "Building SharePoint client attribution map from predetermined client list ($($clientAttributionEntries.Count) entries)." -Color Cyan
+    $ClientAttributionMap = @(
+        New-HuduClientAttributionMapFromEntries `
+            -Entries $clientAttributionEntries `
+            -Companies $AllCompanies `
+            -MinScore $RunSummary.SetupInfo.ClientAttributionMinScore `
+            -MinGap $RunSummary.SetupInfo.ClientAttributionMinGap
+    )
+} else {
+    if ($null -eq $manifestSet) {
+        Set-PrintAndLog -message "No SharePoint manifest set is available; skipping client attribution matching." -Color Yellow
+        $ClientAttributionMap = @()
+        return
+    }
+
+    Set-PrintAndLog -message "Building SharePoint client attribution map from list(s): $($RunSummary.SetupInfo.ClientAttributionListNames -join ', ')" -Color Cyan
+    $clientAttributionSource = "manifest list(s): $($RunSummary.SetupInfo.ClientAttributionListNames -join ', ')"
+    $ClientAttributionMap = @(
+        New-SharePointClientAttributionMap `
+            -ManifestSet $manifestSet `
+            -Companies $AllCompanies `
+            -ListNames $RunSummary.SetupInfo.ClientAttributionListNames `
+            -MinScore $RunSummary.SetupInfo.ClientAttributionMinScore `
+            -MinGap $RunSummary.SetupInfo.ClientAttributionMinGap
+    )
+}
+
+foreach ($mapEntry in @($ClientAttributionMap)) {
+    if ([string]::IsNullOrWhiteSpace([string]$mapEntry.AttributionSource)) {
+        $mapEntry | Add-Member -MemberType NoteProperty -Name AttributionSource -Value $clientAttributionSource -Force
+    }
+}
 
 $autoCount = @($ClientAttributionMap | Where-Object { $_.AutoMatched }).Count
 $reviewCount = @($ClientAttributionMap | Where-Object { -not $_.AutoMatched }).Count
 
-Set-PrintAndLog -message "Client attribution map built: $($ClientAttributionMap.Count) SharePoint client entries; $autoCount auto-match(es); $reviewCount review item(s)." -Color Cyan
+Set-PrintAndLog -message "Client attribution map built from $clientAttributionSource`: $($ClientAttributionMap.Count) client entries; $autoCount auto-match(es); $reviewCount review item(s)." -Color Cyan
 
 $ClientAttributionMap |
     ConvertTo-Json -Depth 20 |
@@ -45,6 +89,7 @@ $ClientAttributionMap |
             AutoMatched       = $_.AutoMatched
             Confidence        = $_.Confidence
             ConfidenceGap     = $_.ConfidenceGap
+            AttributionSource = $_.AttributionSource
             SharePointTitle   = $_.RawTitle
             ClientName        = $_.ClientName
             ClientCode        = $_.ClientCode

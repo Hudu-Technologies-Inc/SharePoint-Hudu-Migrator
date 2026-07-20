@@ -24,6 +24,8 @@ $networkDeviceFieldMap = [ordered]@{
   "Edit"      = "Edit"
 }
 
+
+
 $networkDevicePrimaryFieldMap = @{
   PrimaryManufacturer = "_x0069_gy8"
   PrimaryModel        = "w5ud"
@@ -69,11 +71,11 @@ function Get-MappedSharePointFieldValue {
     return $value
 }
 
- $netdeviceshashtable = $netdevices | Group-Object { $_.fields.LinkTitle } -AsHashTable -AsString
+ $printershashtable = $netdevices | Group-Object { $_.fields.LinkTitle } -AsHashTable -AsString
 
-$netdeviceshashtable.GetEnumerator().name | ForEach-Object {
+$printershashtable.GetEnumerator().name | ForEach-Object {
  $coname = "$_".trim()
- $netitems = $netdeviceshashtable["$_"]
+ $netitems = $printershashtable["$_"]
 
  write-host "$_ has $($netitems.count) items"
  $company = $null;

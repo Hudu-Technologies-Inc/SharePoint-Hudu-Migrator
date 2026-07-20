@@ -35,6 +35,8 @@ $huduapikey = ""
 # $SharePointClientAttributionEnabled = $true
 # $SharePointClientAttributionAutoApply = $true
 # $SharePointClientAttributionClientsPath = ".\clients.json"
+# $SharePointClientAttributionUseCachedMap = $true
+# $SharePointClientAttributionForceRebuildMap = $false
 # $SharePointClientAttributionListNames = @("Client List")
 # $SharePointClientAttributionMinScore = 95
 # $SharePointClientAttributionMinGap = 5
@@ -47,6 +49,8 @@ $huduapikey = ""
 # $SharePointSiteCompanyMinScore = 95
 # $SharePointSiteCompanyMinGap = 5
 # $SharePointSiteCompanyCreateMissing = $true
+# $SharePointSiteCompanyUseCachedMap = $true
+# $SharePointSiteCompanyForceRebuildMap = $false
 
 # Optional: export selected SharePoint lists as per-company JSON bundles
 # instead of trying to turn structured inventory records into articles.

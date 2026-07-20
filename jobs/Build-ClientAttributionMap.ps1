@@ -12,6 +12,21 @@ if ($null -eq $AllCompanies -or $AllCompanies.Count -eq 0) {
     return
 }
 
+if (
+    $RunSummary.SetupInfo.ClientAttributionUseCachedMap -and
+    -not $RunSummary.SetupInfo.ClientAttributionForceRebuildMap -and
+    (Test-Path -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -PathType Leaf)
+) {
+    try {
+        $ClientAttributionMap = @(Get-Content -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -Raw | ConvertFrom-Json)
+        Set-PrintAndLog -message "Loaded cached SharePoint client attribution map: $($ClientAttributionMap.Count) item(s) from $($RunSummary.OutputJsonFiles.ClientAttributionMap)" -Color Cyan
+        return
+    } catch {
+        Set-PrintAndLog -message "Failed to load cached SharePoint client attribution map; rebuilding. $($_.Exception.Message)" -Color Yellow
+        $ClientAttributionMap = @()
+    }
+}
+
 $clientAttributionEntries = @()
 $clientAttributionSource = $null
 $clientsPath = $RunSummary.SetupInfo.ClientAttributionClientsPath

@@ -7,6 +7,21 @@ if ([int]$RunSummary.JobInfo.MigrationDest.Identifier -ne 3) {
     return
 }
 
+if (
+    $RunSummary.SetupInfo.SiteCompanyUseCachedMap -and
+    -not $RunSummary.SetupInfo.SiteCompanyForceRebuildMap -and
+    (Test-Path -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyMap -PathType Leaf)
+) {
+    try {
+        $SiteCompanyMap = @(Get-Content -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyMap -Raw | ConvertFrom-Json)
+        Set-PrintAndLog -message "Loaded cached SharePoint site company map: $($SiteCompanyMap.Count) item(s) from $($RunSummary.OutputJsonFiles.SiteCompanyMap)" -Color Cyan
+        return
+    } catch {
+        Set-PrintAndLog -message "Failed to load cached SharePoint site company map; rebuilding. $($_.Exception.Message)" -Color Yellow
+        $SiteCompanyMap = @()
+    }
+}
+
 Set-PrintAndLog -message "Building SharePoint site to Hudu company map. Missing companies will $(if ($RunSummary.SetupInfo.SiteCompanyCreateMissing) { 'be created' } else { 'not be created' })." -Color Cyan
 
 $siteCompanyMapItems = [System.Collections.Generic.List[object]]::new()

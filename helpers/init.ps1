@@ -83,12 +83,16 @@ $RunSummary=@{
         ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)
         ClientAttributionMinGap = [int]($SharePointClientAttributionMinGap ?? 5)
         ClientAttributionClientsPath = $($SharePointClientAttributionClientsPath ?? (Join-Path $workdir "clients.json"))
+        ClientAttributionUseCachedMap = [bool]($SharePointClientAttributionUseCachedMap ?? $true)
+        ClientAttributionForceRebuildMap = [bool]($SharePointClientAttributionForceRebuildMap ?? $false)
         ClientAttributionListItemMinScore = [int]($SharePointClientAttributionListItemMinScore ?? 95)
         ClientAttributionListItemMinGap = [int]($SharePointClientAttributionListItemMinGap ?? 3)
         ClientAttributionCreateMissing = [bool]($SharePointClientAttributionCreateMissing ?? $false)
         SiteCompanyMinScore = [int]($SharePointSiteCompanyMinScore ?? 95)
         SiteCompanyMinGap = [int]($SharePointSiteCompanyMinGap ?? 5)
         SiteCompanyCreateMissing = [bool]($SharePointSiteCompanyCreateMissing ?? $true)
+        SiteCompanyUseCachedMap = [bool]($SharePointSiteCompanyUseCachedMap ?? $true)
+        SiteCompanyForceRebuildMap = [bool]($SharePointSiteCompanyForceRebuildMap ?? $false)
         ClientAttributionListNames = @(
             if ($null -ne $SharePointClientAttributionListNames) {
                 @($SharePointClientAttributionListNames)

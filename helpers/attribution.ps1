@@ -11,6 +11,18 @@ function ConvertTo-AttributionNormalizedText {
     return $text.Trim()
 }
 
+function ConvertTo-AttributionCompactKey {
+    param ($Value)
+
+    if ($null -eq $Value) { return "" }
+
+    $text = ([string]$Value).ToLowerInvariant()
+    $text = [System.Web.HttpUtility]::HtmlDecode($text)
+    $text = $text -replace '&', 'and'
+    $text = $text -replace '[^a-z0-9]+', ''
+    return $text.Trim()
+}
+
 function Remove-AttributionLegalSuffixes {
     param ($Value)
 
@@ -128,6 +140,10 @@ function Get-AttributionSimilarityScore {
     if (-not $leftNormalized -or -not $rightNormalized) { return 0 }
     if ($leftNormalized -eq $rightNormalized) { return 100 }
 
+    $leftCompact = ConvertTo-AttributionCompactKey $Left
+    $rightCompact = ConvertTo-AttributionCompactKey $Right
+    if ($leftCompact -and $rightCompact -and $leftCompact -eq $rightCompact) { return 100 }
+
     $maxLength = [Math]::Max($leftNormalized.Length, $rightNormalized.Length)
     $distance = Get-AttributionLevenshteinDistance -Left $leftNormalized -Right $rightNormalized
     $levenshteinScore = [Math]::Round((1 - ($distance / $maxLength)) * 100, 2)
@@ -205,6 +221,7 @@ function New-SharePointClientAttributionLookup {
         Entries                             = @($AttributionMap)
         CodeToItems                         = @{}
         TokenToAliasItems                   = @{}
+        CompactAliasPrefixToItems           = @{}
         AliasItems                          = [System.Collections.Generic.List[object]]::new()
         SourceMatchCache                    = @{}
         SourceMatchCacheMaxItems            = 50000
@@ -231,6 +248,7 @@ function New-SharePointClientAttributionLookup {
             $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
             if (-not $normalizedAlias -or $normalizedAlias.Length -lt 3) { continue }
 
+            $compactAlias = ConvertTo-AttributionCompactKey $alias
             $aliasTokens = @(
                 $normalizedAlias -split '\s+' |
                     Where-Object { $_ -and $_.Length -gt 1 } |
@@ -243,6 +261,7 @@ function New-SharePointClientAttributionLookup {
                 Entry           = $entry
                 EntryKey        = $entryKey
                 Alias           = $normalizedAlias
+                CompactAlias    = $compactAlias
                 AliasLength     = $normalizedAlias.Length
                 Tokens          = @($aliasTokens)
                 RequiredMatches = [Math]::Max(1, [Math]::Ceiling($aliasTokens.Count * 0.5))
@@ -251,6 +270,12 @@ function New-SharePointClientAttributionLookup {
             $lookup.AliasItems.Add($aliasItem)
             foreach ($token in $aliasTokens) {
                 Add-SharePointAttributionIndexValue -Table $lookup.TokenToAliasItems -Key $token -Value $aliasItem
+            }
+
+            if ($compactAlias -and $compactAlias.Length -ge 5) {
+                $prefixLength = [Math]::Min(4, $compactAlias.Length)
+                $compactPrefix = $compactAlias.Substring(0, $prefixLength)
+                Add-SharePointAttributionIndexValue -Table $lookup.CompactAliasPrefixToItems -Key $compactPrefix -Value $aliasItem
             }
         }
     }
@@ -319,10 +344,11 @@ function Get-SharePointClientListItemSourceMatchCandidates {
     $normalizedSource = ConvertTo-AttributionNormalizedText $SourceText
     if (-not $normalizedSource) { return @() }
 
+    $compactSource = ConvertTo-AttributionCompactKey $SourceText
     $sourceTokens = @($normalizedSource -split '\s+' | Where-Object { $_ })
     $sourceTokenSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$sourceTokens)
     $lookup = Resolve-SharePointClientAttributionLookup -AttributionMap $AttributionMap
-    $cacheKey = "$normalizedSource`n$([bool]$AutoOnly)`n$([bool]$AllowUnmatchedClientEntry)"
+    $cacheKey = "$normalizedSource`n$compactSource`n$([bool]$AutoOnly)`n$([bool]$AllowUnmatchedClientEntry)"
 
     if ($lookup.SourceMatchCache.ContainsKey($cacheKey)) {
         return @($lookup.SourceMatchCache[$cacheKey])
@@ -362,6 +388,24 @@ function Get-SharePointClientListItemSourceMatchCandidates {
         }
     }
 
+    if ($compactSource -and $compactSource.Length -ge 5) {
+        foreach ($startIndex in 0..($compactSource.Length - 1)) {
+            if (($compactSource.Length - $startIndex) -lt 4) { break }
+            $prefix = $compactSource.Substring($startIndex, 4)
+            if (-not $lookup.CompactAliasPrefixToItems.ContainsKey($prefix)) { continue }
+
+            foreach ($aliasItem in @($lookup.CompactAliasPrefixToItems[$prefix])) {
+                if (-not $aliasItem.CompactAlias -or $aliasItem.CompactAlias.Length -lt 5) { continue }
+                if (-not $compactSource.Contains($aliasItem.CompactAlias)) { continue }
+
+                $aliasKey = "$($aliasItem.EntryKey)|$($aliasItem.Alias)"
+                if ($seenAliasKeys.Add($aliasKey)) {
+                    $candidateAliasItems.Add($aliasItem)
+                }
+            }
+        }
+    }
+
     foreach ($aliasItem in @($candidateAliasItems)) {
         if (-not (Test-SharePointAttributionEntryEligible -Entry $aliasItem.Entry -AutoOnly:$AutoOnly -AllowUnmatchedClientEntry:$AllowUnmatchedClientEntry)) {
             continue
@@ -374,6 +418,9 @@ function Get-SharePointClientListItemSourceMatchCandidates {
         if ($normalizedSource -eq $aliasItem.Alias -or $normalizedSource.Contains($aliasItem.Alias)) {
             $score = 99
             $reason = 'client_list_item_alias_in_source'
+        } elseif ($compactSource -and $aliasItem.CompactAlias -and $compactSource.Contains($aliasItem.CompactAlias)) {
+            $score = 99
+            $reason = 'client_list_item_compact_alias_in_source'
         } elseif ($sharedTokenCount -eq $aliasItem.Tokens.Count) {
             $score = 97
             $reason = 'client_list_item_tokens_in_source'
@@ -578,12 +625,20 @@ function Get-HuduCompanyAttributionCandidates {
         $companyName = [string]$company.Name
         $companyNormalized = ConvertTo-AttributionNormalizedText $companyName
         $companyStripped = Remove-AttributionLegalSuffixes $companyName
+        $clientCompact = ConvertTo-AttributionCompactKey $ClientEntry.ClientName
+        $clientStrippedCompact = ConvertTo-AttributionCompactKey $ClientEntry.StrippedName
+        $companyCompact = ConvertTo-AttributionCompactKey $companyName
+        $companyStrippedCompact = ConvertTo-AttributionCompactKey $companyStripped
         $score = 0
         $reason = 'fuzzy'
 
         if ($ClientEntry.NormalizedName -and $ClientEntry.NormalizedName -eq $companyNormalized) {
             $score = 100
             $reason = 'exact_normalized_name'
+        }
+        elseif ($clientCompact -and $clientCompact -eq $companyCompact) {
+            $score = 100
+            $reason = 'exact_compact_name'
         }
         elseif ($ClientEntry.ClientCode -and $ClientEntry.ClientCode.Length -ge 3 -and $companyNormalized -match "(^| )$([regex]::Escape((ConvertTo-AttributionNormalizedText $ClientEntry.ClientCode)))( |$)") {
             $score = 98
@@ -592,6 +647,10 @@ function Get-HuduCompanyAttributionCandidates {
         elseif ($ClientEntry.StrippedName -and $ClientEntry.StrippedName -eq $companyStripped) {
             $score = 96
             $reason = 'exact_legal_suffix_stripped'
+        }
+        elseif ($clientStrippedCompact -and $clientStrippedCompact -eq $companyStrippedCompact) {
+            $score = 96
+            $reason = 'exact_compact_legal_suffix_stripped'
         }
         else {
             $score = [Math]::Max(

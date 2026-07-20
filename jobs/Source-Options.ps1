@@ -11,6 +11,34 @@ function Get-SharePointSourceOptionSiteKey {
     return [guid]::NewGuid().ToString()
 }
 
+function Get-SharePointSourceOptionSiteMatchValues {
+    param ($Site)
+
+    foreach ($value in @($Site.displayName, $Site.name)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            [string]$value
+        }
+    }
+}
+
+function Test-SharePointSourceOptionSiteSkipped {
+    param (
+        $Site,
+        [string[]]$NormalizedSkipNames
+    )
+
+    if ($NormalizedSkipNames.Count -eq 0) { return $false }
+
+    foreach ($siteValue in @(Get-SharePointSourceOptionSiteMatchValues -Site $Site)) {
+        $normalizedSiteValue = ConvertTo-AttributionNormalizedText $siteValue
+        if ($normalizedSiteValue -and $NormalizedSkipNames -contains $normalizedSiteValue) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $graphSites = @(Invoke-SharePointGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites?search=*")
 $manifestSites = @()
 
@@ -40,6 +68,41 @@ if ($manifestSites.Count -gt $graphSites.Count) {
 
     $allSites = @($siteByKey.Values)
     Set-PrintAndLog -message "Loaded $($allSites.Count) SharePoint site(s) for source selection." -Color Cyan
+}
+
+$siteSkipNames = @($RunSummary.SetupInfo.SiteSkipNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+if ($siteSkipNames.Count -gt 0) {
+    $normalizedSiteSkipNames = @(
+        $siteSkipNames |
+            ForEach-Object { ConvertTo-AttributionNormalizedText $_ } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+    )
+
+    $sitesBeforeSkip = @($allSites)
+    $skippedSites = @(
+        $sitesBeforeSkip |
+            Where-Object { Test-SharePointSourceOptionSiteSkipped -Site $_ -NormalizedSkipNames $normalizedSiteSkipNames }
+    )
+    $allSites = @(
+        $sitesBeforeSkip |
+            Where-Object { -not (Test-SharePointSourceOptionSiteSkipped -Site $_ -NormalizedSkipNames $normalizedSiteSkipNames) }
+    )
+
+    if ($skippedSites.Count -gt 0) {
+        $skippedSiteNames = @(
+            $skippedSites |
+                ForEach-Object { $_.displayName ?? $_.name ?? $_.webUrl ?? $_.id }
+        )
+        Set-PrintAndLog -message "Skipped $($skippedSites.Count) SharePoint site(s) by configured skip list: $($skippedSiteNames -join ', ')" -Color Yellow
+    } else {
+        Set-PrintAndLog -message "Configured SharePoint site skip list did not match any loaded sites." -Color DarkGray
+    }
+}
+
+if ($null -eq $allSites -or $allSites.Count -lt 1) {
+    Write-Error "No SharePoint sites are available after applying the configured site skip list."
+    return
 }
 
 foreach ($site in $allSites) {

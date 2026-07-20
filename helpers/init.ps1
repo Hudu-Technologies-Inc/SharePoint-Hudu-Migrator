@@ -78,6 +78,13 @@ $RunSummary=@{
         ResumeIgnoreETag    = [bool]($SharePointResumeIgnoreETag ?? $false)
         SkipExistingArticles = [bool]($SharePointSkipExistingArticles ?? $true)
         PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
+        SiteSkipNames        = @(
+            if ($null -ne $SharePointSiteSkipNames) {
+                @($SharePointSiteSkipNames)
+            } else {
+                @()
+            }
+        )
         ClientAttributionEnabled = [bool]($SharePointClientAttributionEnabled ?? $true)
         ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)
         ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)

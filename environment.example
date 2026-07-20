@@ -30,6 +30,13 @@ $huduapikey = ""
 # them. Article names keep the .pdf extension for post-run is_upload updates.
 # $SharePointPdfUploadAsFile = $true
 
+# Optional: exclude SharePoint sites from source selection by site displayName
+# or name. Matching is case/punctuation-insensitive.
+# $SharePointSiteSkipNames = @(
+#   "Archive",
+#   "Old Client Portal"
+# )
+
 # Optional: build and use a fuzzy SharePoint client-list to Hudu company map.
 # Defaults shown here.
 # $SharePointClientAttributionEnabled = $true

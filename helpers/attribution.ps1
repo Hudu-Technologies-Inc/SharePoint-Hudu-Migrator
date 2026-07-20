@@ -676,6 +676,30 @@ function New-HuduClientAttributionMapFromEntries {
         [int]$MinGap = 5
     )
 
+    $companyByNormalizedName = @{}
+    $companyByCompactName = @{}
+    $companyByStrippedName = @{}
+    $companyByCompactStrippedName = @{}
+
+    foreach ($company in @($Companies)) {
+        $companyName = [string]$company.Name
+        if ([string]::IsNullOrWhiteSpace($companyName)) { continue }
+
+        $strippedName = Remove-AttributionLegalSuffixes $companyName
+        foreach ($pair in @(
+            @{ Table = $companyByNormalizedName; Key = (ConvertTo-AttributionNormalizedText $companyName) },
+            @{ Table = $companyByCompactName; Key = (ConvertTo-AttributionCompactKey $companyName) },
+            @{ Table = $companyByStrippedName; Key = $strippedName },
+            @{ Table = $companyByCompactStrippedName; Key = (ConvertTo-AttributionCompactKey $strippedName) }
+        )) {
+            if ([string]::IsNullOrWhiteSpace([string]$pair.Key)) { continue }
+            if (-not $pair.Table.ContainsKey($pair.Key)) {
+                $pair.Table[$pair.Key] = [System.Collections.Generic.List[object]]::new()
+            }
+            $pair.Table[$pair.Key].Add($company)
+        }
+    }
+
     foreach ($entry in @($Entries)) {
         $explicitCompanyId = $entry.HuduCompanyId ?? $entry.CompanyId
         $explicitCompanyName = $entry.HuduCompanyName ?? $entry.CompanyName
@@ -704,7 +728,38 @@ function New-HuduClientAttributionMapFromEntries {
                 }
             )
         } else {
-            @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
+            $exactCompanies = @()
+            $exactReason = $null
+
+            foreach ($exactMatch in @(
+                @{ Table = $companyByNormalizedName; Key = $entry.NormalizedName; Reason = 'exact_normalized_name' },
+                @{ Table = $companyByCompactName; Key = (ConvertTo-AttributionCompactKey $entry.ClientName); Reason = 'exact_compact_name' },
+                @{ Table = $companyByStrippedName; Key = $entry.StrippedName; Reason = 'exact_legal_suffix_stripped' },
+                @{ Table = $companyByCompactStrippedName; Key = (ConvertTo-AttributionCompactKey $entry.StrippedName); Reason = 'exact_compact_legal_suffix_stripped' }
+            )) {
+                if ([string]::IsNullOrWhiteSpace([string]$exactMatch.Key)) { continue }
+                if (-not $exactMatch.Table.ContainsKey($exactMatch.Key)) { continue }
+
+                $exactCompanies = @($exactMatch.Table[$exactMatch.Key])
+                $exactReason = $exactMatch.Reason
+                break
+            }
+
+            if ($exactCompanies.Count -gt 0) {
+                @(
+                    $exactCompanies |
+                        ForEach-Object {
+                            [PSCustomObject]@{
+                                CompanyId   = $_.Id
+                                CompanyName = $_.Name
+                                Score       = 100
+                                Reason      = $exactReason
+                            }
+                        }
+                )
+            } else {
+                @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
+            }
         }
 
         $best = $candidates | Select-Object -First 1
@@ -807,7 +862,7 @@ function Confirm-HuduCompanyForSharePointAttributionMatch {
     if (-not $AttributionMatch -or -not $AttributionMatch.Entry) { return $null }
 
     $entry = $AttributionMatch.Entry
-    if ($entry.HuduCompanyId -and ($entry.AutoMatched -or $entry.MatchStatus -eq 'Created')) { return $entry }
+    if ($entry.HuduCompanyId) { return $entry }
     if (-not $CreateMissing) { return $null }
 
     $companyName = $entry.ClientName

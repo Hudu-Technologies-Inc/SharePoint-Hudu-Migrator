@@ -16,9 +16,34 @@ if ($null -eq $AllCompanies -or $AllCompanies.Count -eq 0) {
     return
 }
 
+$clientAttributionEntries = @()
+$clientAttributionSource = $null
+$clientsPath = $RunSummary.SetupInfo.ClientAttributionClientsPath
+$resolvedClientsPath = $null
+
+if (-not [string]::IsNullOrWhiteSpace([string]$clientsPath)) {
+    $resolvedClientsPath = if ([System.IO.Path]::IsPathRooted([string]$clientsPath)) {
+        [string]$clientsPath
+    } else {
+        Join-Path $workdir ([string]$clientsPath)
+    }
+}
+
+$clientMapCacheIsStale = $false
+if (
+    -not [string]::IsNullOrWhiteSpace([string]$resolvedClientsPath) -and
+    (Test-Path -LiteralPath $resolvedClientsPath -PathType Leaf) -and
+    (Test-Path -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -PathType Leaf)
+) {
+    $clientFileLastWriteUtc = (Get-Item -LiteralPath $resolvedClientsPath).LastWriteTimeUtc
+    $mapLastWriteUtc = (Get-Item -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap).LastWriteTimeUtc
+    $clientMapCacheIsStale = $clientFileLastWriteUtc -gt $mapLastWriteUtc
+}
+
 if (
     $RunSummary.SetupInfo.ClientAttributionUseCachedMap -and
     -not $RunSummary.SetupInfo.ClientAttributionForceRebuildMap -and
+    -not $clientMapCacheIsStale -and
     (Test-Path -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -PathType Leaf)
 ) {
     try {
@@ -35,17 +60,11 @@ if (
     }
 }
 
-$clientAttributionEntries = @()
-$clientAttributionSource = $null
-$clientsPath = $RunSummary.SetupInfo.ClientAttributionClientsPath
+if ($clientMapCacheIsStale) {
+    Set-PrintAndLog -message "Cached SharePoint client attribution map is older than clients.json; rebuilding." -Color Yellow
+}
 
-if (-not [string]::IsNullOrWhiteSpace([string]$clientsPath)) {
-    $resolvedClientsPath = if ([System.IO.Path]::IsPathRooted([string]$clientsPath)) {
-        [string]$clientsPath
-    } else {
-        Join-Path $workdir ([string]$clientsPath)
-    }
-
+if (-not [string]::IsNullOrWhiteSpace([string]$resolvedClientsPath)) {
     if (Test-Path -LiteralPath $resolvedClientsPath -PathType Leaf) {
         Set-PrintAndLog -message "Loading predetermined SharePoint client list: $resolvedClientsPath" -Color Cyan
         $clientAttributionEntries = @(Import-SharePointClientAttributionClientFile -Path $resolvedClientsPath)

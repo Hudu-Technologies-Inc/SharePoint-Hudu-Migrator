@@ -184,6 +184,49 @@ foreach ($group in $indexGroups) {
         continue
     }
 
+    $leafName = if ([string]::IsNullOrWhiteSpace($relativeFolderPath)) { "SharePoint Root" } else { Split-Path -Path $relativeFolderPath -Leaf }
+    $articleTitle = "$(Get-SafeTitle $leafName) - File Index"
+
+    if ($RunSummary.SetupInfo.SkipExistingArticles -and ($null -eq $companyId -or $companyId -ge 0)) {
+        $existingArticle = Get-HuduExistingArticleByExactName -Title $articleTitle -CompanyId $companyId
+        if ($existingArticle) {
+            $existingArticleId = $existingArticle.id ?? $existingArticle.Id
+            $existingArticleUrl = $existingArticle.url ?? $existingArticle.Url
+            Set-PrintAndLog -message "Skipping index-only article '$articleTitle' because Hudu article already exists in target company/global KB: $existingArticleUrl" -Color Yellow
+
+            $RunSummary.JobInfo.ArticlesSkipped++
+            $RunSummary.Warnings += @{
+                Message     = "Skipped index-only folder because matching Hudu article already exists"
+                Title       = $articleTitle
+                CompanyId   = $companyId
+                ExistingId  = $existingArticleId
+                ExistingUrl = $existingArticleUrl
+                Folder      = $relativeFolderPath
+            }
+
+            [void]$AllNewLinks.Add([PSCustomObject]@{
+                PageId    = "index-only:$relativeFolderPath"
+                PageTitle = $articleTitle
+                HuduUrl   = $existingArticleUrl
+                ArticleId = $existingArticleId
+            })
+
+            if ($RunSummary.SetupInfo.ResumeFromState) {
+                foreach ($file in $files) {
+                    if ([string]::IsNullOrWhiteSpace([string]$file.SourceKey)) { continue }
+
+                    Write-SharePointExistingArticleSkipState `
+                        -Doc $file `
+                        -ExistingArticle $existingArticle `
+                        -Message "Skipped because matching Hudu file index article already exists"
+                }
+            }
+
+            Write-Progress -Activity "Creating index-only articles" -Status "$completionPercentage%" -PercentComplete $completionPercentage
+            continue
+        }
+    }
+
     $huduFolderId = $null
     $key = "$companyId-$relativeFolderPath"
     if (-not [string]::IsNullOrWhiteSpace($relativeFolderPath)) {
@@ -204,8 +247,6 @@ foreach ($group in $indexGroups) {
         }
     }
 
-    $leafName = if ([string]::IsNullOrWhiteSpace($relativeFolderPath)) { "SharePoint Root" } else { Split-Path -Path $relativeFolderPath -Leaf }
-    $articleTitle = "$(Get-SafeTitle $leafName) - File Index"
     Set-PrintAndLog -message "Creating index-only article '$articleTitle' for $($files.Count) file(s)." -Color Yellow
 
     if ($null -eq $companyId -or $companyId -eq 0) {
@@ -312,6 +353,23 @@ foreach ($group in $indexGroups) {
         Files              = $files
         Content            = $indexHtml
     }
+
+    if ($RunSummary.SetupInfo.ResumeFromState) {
+        foreach ($file in $files) {
+            if ([string]::IsNullOrWhiteSpace([string]$file.SourceKey)) { continue }
+
+            $stateEntry = Write-SharePointMigrationStateEntry `
+                -Path $RunSummary.OutputJsonFiles.MigrationState `
+                -Item $file `
+                -Status Completed `
+                -HuduType Article `
+                -HuduId ($huduArticle.id ?? $stub.id) `
+                -Message "Indexed in Hudu file index article"
+
+            $SharePointMigrationState[$file.SourceKey] = $stateEntry
+        }
+    }
+
     [void]$IndexOnlyArticles.Add($indexArticle)
     $RunSummary.JobInfo.ArticlesCreated++
     $RunSummary.JobInfo.LinksCreated++

@@ -59,6 +59,7 @@ $RunSummary=@{
         SiteCompanyReview = "$(join-path $logsFolder -ChildPath "site-company-review.csv")"
         StructuredListJsonDir = "$(join-path $logsFolder -ChildPath "structured-list-json")"
         StructuredListJsonIndex = "$(join-path $logsFolder -ChildPath "structured-list-json-index.csv")"
+        MigrationState = "$(join-path $logsFolder -ChildPath "sharepoint-migration-state.jsonl")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
     }
     SetupInfo=@{
@@ -73,6 +74,9 @@ $RunSummary=@{
         RunDuration         = $null
         PreviewLength       = 2500
         LowDiskMode         = [bool]($SharePointLowDiskMode ?? $false)
+        ResumeFromState     = [bool]($SharePointResumeFromState ?? $true)
+        ResumeIgnoreETag    = [bool]($SharePointResumeIgnoreETag ?? $false)
+        SkipExistingArticles = [bool]($SharePointSkipExistingArticles ?? $true)
         PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
         ClientAttributionEnabled = [bool]($SharePointClientAttributionEnabled ?? $true)
         ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)

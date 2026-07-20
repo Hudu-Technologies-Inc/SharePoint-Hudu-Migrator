@@ -323,6 +323,70 @@ function New-HuduStubArticle {
     return (New-HuduArticle @params).article
 }
 
+function Get-HuduExistingArticleByExactName {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Title,
+
+        [nullable[int]]$CompanyId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Title)) { return $null }
+
+    $articles = if ($null -ne $CompanyId -and $CompanyId -ge 1) {
+        @(Get-HuduArticles -Name $Title -CompanyId $CompanyId)
+    } else {
+        @(Get-HuduArticles -Name $Title)
+    }
+
+    $normalizedTitle = $Title.Trim().ToLowerInvariant()
+
+    $matches = @(
+        foreach ($article in $articles) {
+            $articleName = [string]($article.name ?? $article.Name)
+            if ($articleName.Trim().ToLowerInvariant() -ne $normalizedTitle) { continue }
+
+            $articleCompanyId = $article.company_id ?? $article.companyId ?? $article.company.id ?? $article.CompanyId
+            if ($null -ne $CompanyId -and $CompanyId -ge 1) {
+                if ([int]$articleCompanyId -ne [int]$CompanyId) { continue }
+            } else {
+                if ($articleCompanyId -and [int]$articleCompanyId -gt 0) { continue }
+            }
+
+            $article
+        }
+    )
+
+    return $matches | Select-Object -First 1
+}
+
+function Write-SharePointExistingArticleSkipState {
+    param (
+        [Parameter(Mandatory)]
+        $Doc,
+
+        [Parameter(Mandatory)]
+        $ExistingArticle,
+
+        [string]$Message = "Skipped because matching Hudu article already exists"
+    )
+
+    if (
+        $RunSummary.SetupInfo.ResumeFromState -and
+        -not [string]::IsNullOrWhiteSpace([string]$Doc.SourceKey)
+    ) {
+        $stateEntry = Write-SharePointMigrationStateEntry `
+            -Path $RunSummary.OutputJsonFiles.MigrationState `
+            -Item $Doc `
+            -Status Completed `
+            -HuduType Article `
+            -HuduId ($ExistingArticle.id ?? $ExistingArticle.Id) `
+            -Message $Message
+
+        $SharePointMigrationState[$Doc.SourceKey] = $stateEntry
+    }
+}
+
 function Get-SafeTitle {
     param ([string]$Name)
 

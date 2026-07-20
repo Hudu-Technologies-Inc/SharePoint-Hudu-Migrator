@@ -17,6 +17,15 @@ $huduapikey = ""
 # files after each site. Useful for runners with limited free disk space.
 # $SharePointLowDiskMode = $true
 
+# Optional: skip SharePoint drive items already completed in a prior run.
+# Uses logs\sharepoint-migration-state.jsonl and compares SharePoint item ID + ETag.
+# $SharePointResumeFromState = $true
+# $SharePointResumeIgnoreETag = $false
+
+# Optional: before stubbing an article, skip if an article with the same exact
+# name already exists in the target Hudu company/global KB.
+# $SharePointSkipExistingArticles = $true
+
 # Optional: upload PDFs as attached files on stub articles instead of converting
 # them. Article names keep the .pdf extension for post-run is_upload updates.
 # $SharePointPdfUploadAsFile = $true

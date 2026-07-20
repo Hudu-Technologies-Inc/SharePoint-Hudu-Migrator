@@ -31,6 +31,7 @@ $SingleCompanyChoice=@{}
 $StubbedArticles=@()
 $ClientAttributionMap=@()
 $SiteCompanyMap=@()
+$SharePointMigrationState=@{}
 
 foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort-Object Name)) {
     Write-Host "Importing: $($file.Name)" -ForegroundColor DarkBlue
@@ -64,6 +65,13 @@ if ($null -ne $SharePointManifestMaxSites -and $SharePointManifestMaxSites -gt 0
 $manifestSet = Initialize-SharePointManifestSet @manifestParams
 
 $workItems = @(ConvertFrom-SharePointManifestSet -ManifestSet $manifestSet)
+
+$SharePointMigrationState = if ($RunSummary.SetupInfo.ResumeFromState) {
+    Import-SharePointMigrationState -Path $RunSummary.OutputJsonFiles.MigrationState
+} else {
+    @{}
+}
+Set-PrintAndLog -message "Loaded SharePoint migration state: $($SharePointMigrationState.Count) completed/skipped/failed state entr$(if ($SharePointMigrationState.Count -eq 1) { 'y' } else { 'ies' }) from $($RunSummary.OutputJsonFiles.MigrationState)" -Color Cyan
 
 
 

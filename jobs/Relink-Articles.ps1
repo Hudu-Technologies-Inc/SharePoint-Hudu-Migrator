@@ -73,11 +73,25 @@ function Relink-DocumentUploads {
 
 
         $doc.replacedContent =$updatedHTML
-        if ($null -ne $doc.companyId -and $doc.companyId -ge 1) {
+        $updatedArticle = if ($null -ne $doc.companyId -and $doc.companyId -ge 1) {
             Set-HuduArticle -id $doc.stub.id -content $updatedHTML -CompanyId $doc.companyId
         } else {
             Set-HuduArticle -id $doc.stub.id -content $updatedHTML
         }
+        $updatedArticle = $updatedArticle.Article ?? $updatedArticle
+
+        if ($RunSummary.SetupInfo.ResumeFromState -and -not [string]::IsNullOrWhiteSpace([string]$doc.SourceKey)) {
+            $stateEntry = Write-SharePointMigrationStateEntry `
+                -Path $RunSummary.OutputJsonFiles.MigrationState `
+                -Item $doc `
+                -Status Completed `
+                -HuduType Article `
+                -HuduId ($updatedArticle.id ?? $doc.stub.id) `
+                -Message "Article relinked successfully"
+
+            $SharePointMigrationState[$doc.SourceKey] = $stateEntry
+        }
+
         # Save back
         $doc.ReplacedLinks = Get-LinksFromHTML -htmlContent $updatedHTML -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $false
         Save-HtmlSnapshot -PageId $doc.id -Title $doc.title -Content $updatedHTML -Suffix "relinked" -OutDir $tmpfolder

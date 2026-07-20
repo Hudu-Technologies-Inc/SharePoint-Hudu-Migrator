@@ -74,6 +74,42 @@ foreach ($doc in $docsToStub) {
         }
     }
 
+    if ($RunSummary.SetupInfo.SkipExistingArticles -and ($null -eq $doc.CompanyId -or $doc.CompanyId -ge 0)) {
+        $existingArticle = Get-HuduExistingArticleByExactName -Title $doc.title -CompanyId $doc.CompanyId
+        if ($existingArticle) {
+            $existingArticleId = $existingArticle.id ?? $existingArticle.Id
+            $existingArticleUrl = $existingArticle.url ?? $existingArticle.Url
+            Set-PrintAndLog -message "Skipping '$($doc.title)' because Hudu article already exists in target company/global KB: $existingArticleUrl" -Color Yellow
+
+            $doc | Add-Member -NotePropertyName ExistingHuduArticle -NotePropertyValue $existingArticle -Force
+            $RunSummary.JobInfo.ArticlesSkipped++
+            $RunSummary.Warnings += @{
+                Message       = "Skipped SharePoint file because matching Hudu article already exists"
+                Title         = $doc.title
+                CompanyId     = $doc.CompanyId
+                ExistingId    = $existingArticleId
+                ExistingUrl   = $existingArticleUrl
+                SharePointKey = $doc.SourceKey
+            }
+
+            if ($existingArticleUrl -or $existingArticleId) {
+                $AllNewLinks.Add([PSCustomObject]@{
+                    PageId    = $doc.id
+                    PageTitle = $doc.title
+                    HuduUrl   = $existingArticleUrl
+                    ArticleId = $existingArticleId
+                })
+            }
+
+            Write-SharePointExistingArticleSkipState `
+                -Doc $doc `
+                -ExistingArticle $existingArticle
+
+            Write-Progress -Activity "Stubbing $($doc.title)" -Status "$completionPercentage%" -PercentComplete $completionPercentage
+            continue
+        }
+    }
+
     # Resolve relative folder path
     $relativeFolderPath = $null
     if ($doc.LocalPath -and $BaseSitePath) {

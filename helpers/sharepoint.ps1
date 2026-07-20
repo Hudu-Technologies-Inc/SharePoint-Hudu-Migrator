@@ -145,6 +145,43 @@ function Get-GraphDriveChildItems {
     Invoke-SharePointGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites/$siteId/drives/$driveId/items/$folderId/children"
 }
 
+function Get-SharePointDriveItemSourceKey {
+    param ($Item)
+
+    if ($Item.id) {
+        return 'sharepoint:driveItem:{0}' -f $Item.id
+    }
+
+    if ($Item.webUrl) {
+        return 'sharepoint:driveItemUrl:{0}' -f $Item.webUrl
+    }
+
+    return $null
+}
+
+function Get-SharePointDriveItemSourceETag {
+    param ($Item)
+
+    return ($Item.eTag ?? $Item.cTag)
+}
+
+function Test-SharePointDriveItemAlreadyCompleted {
+    param ($Item)
+
+    if (-not $RunSummary.SetupInfo.ResumeFromState) { return $false }
+    if ($null -eq $SharePointMigrationState) { return $false }
+
+    $resumeItem = [PSCustomObject]@{
+        SourceKey  = Get-SharePointDriveItemSourceKey -Item $Item
+        SourceETag = Get-SharePointDriveItemSourceETag -Item $Item
+    }
+
+    Test-SharePointItemAlreadyMigrated `
+        -Item $resumeItem `
+        -State $SharePointMigrationState `
+        -IgnoreETag:$RunSummary.SetupInfo.ResumeIgnoreETag
+}
+
 function ConvertTo-SharePointDiscoveredFile {
     param (
         [Parameter(Mandatory)] $Item,
@@ -169,6 +206,8 @@ function ConvertTo-SharePointDiscoveredFile {
 
     [PSCustomObject]@{
         Name                = $Item.name
+        SourceKey           = Get-SharePointDriveItemSourceKey -Item $Item
+        SourceETag          = Get-SharePointDriveItemSourceETag -Item $Item
         LocalPath           = $ItemPath
         SiteId              = $SiteId
         SiteName            = $SiteName
@@ -242,6 +281,12 @@ function Download-GraphDriveItemRecursively {
         }
     }
     elseif ($item.file) {
+        if (Test-SharePointDriveItemAlreadyCompleted -Item $item) {
+            Set-PrintAndLog -message "Skipping already completed SharePoint item: $itemPath" -Color DarkGray
+            $RunSummary.JobInfo.ArticlesSkipped++
+            return $discoveredFiles
+        }
+
         $downloadUrl = $item."@microsoft.graph.downloadUrl"
         $itemSize = [int64]($item.size ?? 0)
         $downloadSkipped = $false

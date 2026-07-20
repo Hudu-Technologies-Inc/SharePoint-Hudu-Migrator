@@ -37,7 +37,7 @@ foreach ($doc in $docsToStub) {
             $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
                 Resolve-HuduCompanyFromSharePointAttributionMap `
                     -SourceText $sourceText `
-                    -AttributionMap $ClientAttributionMap `
+                    -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
                     -AutoOnly `
                     -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
                     -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `

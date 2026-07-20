@@ -60,6 +60,18 @@ function Get-SharePointListItemAttributionSourceText {
     return ($parts -join ' ')
 }
 
+function Get-SharePointListItemPrimaryAttributionSourceText {
+    param ($Item)
+
+    if (-not $Item.fields) { return $null }
+    if (-not ($Item.fields.PSObject.Properties.Name -contains 'LinkTitle')) { return $null }
+
+    $linkTitle = $Item.fields.LinkTitle
+    if ([string]::IsNullOrWhiteSpace([string]$linkTitle)) { return $null }
+
+    return [string]$linkTitle
+}
+
 function Get-SafeStructuredListPathName {
     param (
         [string]$Name,
@@ -79,7 +91,7 @@ function Export-SharePointStructuredListJson {
     param (
         [Parameter(Mandatory)] $ManifestSet,
         [Parameter(Mandatory)] [string[]]$ListNames,
-        [array]$AttributionMap = @(),
+        $AttributionMap = @(),
         [Parameter(Mandatory)] [string]$OutputDirectory,
         [Parameter(Mandatory)] [string]$IndexPath
     )
@@ -90,6 +102,15 @@ function Export-SharePointStructuredListJson {
 
     $recordsByKey = @{}
     $indexRows = [System.Collections.Generic.List[object]]::new()
+    $primaryAttributionCache = @{}
+    $hasAttributionMap = if (
+        $AttributionMap.PSObject.Properties.Name -contains 'IsSharePointClientAttributionLookup' -and
+        $AttributionMap.IsSharePointClientAttributionLookup
+    ) {
+        @($AttributionMap.Entries).Count -gt 0
+    } else {
+        @($AttributionMap).Count -gt 0
+    }
 
     foreach ($manifest in @($ManifestSet.Manifests)) {
         foreach ($siteEntry in @($manifest.sites)) {
@@ -101,11 +122,23 @@ function Export-SharePointStructuredListJson {
 
                 $listBaseName = Get-SharePointStructuredListBaseName $listName
                 foreach ($item in @($listEntry.items)) {
-                    $sourceText = Get-SharePointListItemAttributionSourceText -SiteEntry $siteEntry -ListEntry $listEntry -Item $item
-                    $match = if ($AttributionMap.Count -gt 0) {
-                        Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $sourceText -AttributionMap $AttributionMap -AutoOnly
-                    } else {
-                        $null
+                    $match = $null
+                    if ($hasAttributionMap) {
+                        $primarySourceText = Get-SharePointListItemPrimaryAttributionSourceText -Item $item
+                        if (-not [string]::IsNullOrWhiteSpace([string]$primarySourceText)) {
+                            $primaryCacheKey = ConvertTo-AttributionNormalizedText $primarySourceText
+                            if ($primaryAttributionCache.ContainsKey($primaryCacheKey)) {
+                                $match = $primaryAttributionCache[$primaryCacheKey]
+                            } else {
+                                $match = Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $primarySourceText -AttributionMap $AttributionMap -AutoOnly
+                                $primaryAttributionCache[$primaryCacheKey] = $match
+                            }
+                        }
+
+                        if (-not $match) {
+                            $sourceText = Get-SharePointListItemAttributionSourceText -SiteEntry $siteEntry -ListEntry $listEntry -Item $item
+                            $match = Resolve-HuduCompanyFromSharePointAttributionMap -SourceText $sourceText -AttributionMap $AttributionMap -AutoOnly
+                        }
                     }
 
                     $companyId = $match.Entry.HuduCompanyId

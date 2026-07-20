@@ -3,12 +3,16 @@
 if (-not $RunSummary.SetupInfo.ClientAttributionEnabled) {
     Set-PrintAndLog -message "Client attribution matching disabled." -Color DarkGray
     $ClientAttributionMap = @()
+    $ClientAttributionLookup = $null
+    $ClientAttributionResolver = @()
     return
 }
 
 if ($null -eq $AllCompanies -or $AllCompanies.Count -eq 0) {
     Set-PrintAndLog -message "No Hudu companies are available; skipping client attribution matching." -Color Yellow
     $ClientAttributionMap = @()
+    $ClientAttributionLookup = $null
+    $ClientAttributionResolver = @()
     return
 }
 
@@ -19,11 +23,15 @@ if (
 ) {
     try {
         $ClientAttributionMap = @(Get-Content -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -Raw | ConvertFrom-Json)
+        $ClientAttributionLookup = New-SharePointClientAttributionLookup -AttributionMap $ClientAttributionMap
+        $ClientAttributionResolver = $ClientAttributionLookup
         Set-PrintAndLog -message "Loaded cached SharePoint client attribution map: $($ClientAttributionMap.Count) item(s) from $($RunSummary.OutputJsonFiles.ClientAttributionMap)" -Color Cyan
         return
     } catch {
         Set-PrintAndLog -message "Failed to load cached SharePoint client attribution map; rebuilding. $($_.Exception.Message)" -Color Yellow
         $ClientAttributionMap = @()
+        $ClientAttributionLookup = $null
+        $ClientAttributionResolver = @()
     }
 }
 
@@ -67,6 +75,8 @@ if ($clientAttributionEntries.Count -gt 0) {
     if ($null -eq $manifestSet) {
         Set-PrintAndLog -message "No SharePoint manifest set is available; skipping client attribution matching." -Color Yellow
         $ClientAttributionMap = @()
+        $ClientAttributionLookup = $null
+        $ClientAttributionResolver = @()
         return
     }
 
@@ -87,6 +97,9 @@ foreach ($mapEntry in @($ClientAttributionMap)) {
         $mapEntry | Add-Member -MemberType NoteProperty -Name AttributionSource -Value $clientAttributionSource -Force
     }
 }
+
+$ClientAttributionLookup = New-SharePointClientAttributionLookup -AttributionMap $ClientAttributionMap
+$ClientAttributionResolver = $ClientAttributionLookup
 
 $autoCount = @($ClientAttributionMap | Where-Object { $_.AutoMatched }).Count
 $reviewCount = @($ClientAttributionMap | Where-Object { -not $_.AutoMatched }).Count

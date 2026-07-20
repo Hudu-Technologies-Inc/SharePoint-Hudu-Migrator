@@ -166,13 +166,150 @@ function Get-AttributionBestSourceWindowScore {
     return [double]$best
 }
 
+function Add-SharePointAttributionIndexValue {
+    param (
+        [Parameter(Mandatory)] [hashtable]$Table,
+        [Parameter(Mandatory)] [string]$Key,
+        [Parameter(Mandatory)] $Value
+    )
+
+    if (-not $Table.ContainsKey($Key)) {
+        $Table[$Key] = [System.Collections.Generic.List[object]]::new()
+    }
+
+    $Table[$Key].Add($Value)
+}
+
+function Test-SharePointAttributionEntryEligible {
+    param (
+        $Entry,
+        [switch]$AutoOnly,
+        [switch]$AllowUnmatchedClientEntry
+    )
+
+    if ($AutoOnly -and -not $Entry.AutoMatched -and -not $AllowUnmatchedClientEntry) {
+        return $false
+    }
+
+    return $true
+}
+
+function New-SharePointClientAttributionLookup {
+    param (
+        [Parameter(Mandatory)]
+        [array]$AttributionMap
+    )
+
+    $lookup = [PSCustomObject]@{
+        IsSharePointClientAttributionLookup = $true
+        Entries                             = @($AttributionMap)
+        CodeToItems                         = @{}
+        TokenToAliasItems                   = @{}
+        AliasItems                          = [System.Collections.Generic.List[object]]::new()
+        SourceMatchCache                    = @{}
+        SourceMatchCacheMaxItems            = 50000
+    }
+
+    $entryIndex = 0
+    foreach ($entry in @($AttributionMap)) {
+        $entryKey = [string]$entryIndex
+        $entryIndex++
+
+        $normalizedCode = ConvertTo-AttributionNormalizedText ($entry.NormalizedClientCode ?? $entry.ClientCode)
+        if ($normalizedCode -and $normalizedCode.Length -ge 2) {
+            Add-SharePointAttributionIndexValue `
+                -Table $lookup.CodeToItems `
+                -Key $normalizedCode `
+                -Value ([PSCustomObject]@{
+                    Entry    = $entry
+                    EntryKey = $entryKey
+                    Code     = $normalizedCode
+                })
+        }
+
+        foreach ($alias in @($entry.Aliases)) {
+            $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
+            if (-not $normalizedAlias -or $normalizedAlias.Length -lt 3) { continue }
+
+            $aliasTokens = @(
+                $normalizedAlias -split '\s+' |
+                    Where-Object { $_ -and $_.Length -gt 1 } |
+                    Sort-Object -Unique
+            )
+
+            if ($aliasTokens.Count -eq 0) { continue }
+
+            $aliasItem = [PSCustomObject]@{
+                Entry           = $entry
+                EntryKey        = $entryKey
+                Alias           = $normalizedAlias
+                AliasLength     = $normalizedAlias.Length
+                Tokens          = @($aliasTokens)
+                RequiredMatches = [Math]::Max(1, [Math]::Ceiling($aliasTokens.Count * 0.5))
+            }
+
+            $lookup.AliasItems.Add($aliasItem)
+            foreach ($token in $aliasTokens) {
+                Add-SharePointAttributionIndexValue -Table $lookup.TokenToAliasItems -Key $token -Value $aliasItem
+            }
+        }
+    }
+
+    return $lookup
+}
+
+function Resolve-SharePointClientAttributionLookup {
+    param (
+        [Parameter(Mandatory)]
+        $AttributionMap
+    )
+
+    if (
+        $AttributionMap.PSObject.Properties.Name -contains 'IsSharePointClientAttributionLookup' -and
+        $AttributionMap.IsSharePointClientAttributionLookup
+    ) {
+        return $AttributionMap
+    }
+
+    return New-SharePointClientAttributionLookup -AttributionMap @($AttributionMap)
+}
+
+function Set-SharePointAttributionBestMatch {
+    param (
+        [Parameter(Mandatory)] [hashtable]$BestByEntryKey,
+        [Parameter(Mandatory)] $Entry,
+        [Parameter(Mandatory)] [string]$EntryKey,
+        [Parameter(Mandatory)] [string]$Alias,
+        [Parameter(Mandatory)] [double]$Score,
+        [Parameter(Mandatory)] [string]$Reason,
+        [int]$AliasLength = 0
+    )
+
+    $existing = $BestByEntryKey[$EntryKey]
+    if (
+        -not $existing -or
+        $Score -gt [double]$existing.Confidence -or
+        ($Score -eq [double]$existing.Confidence -and $AliasLength -gt [int]$existing.AliasLength)
+    ) {
+        $BestByEntryKey[$EntryKey] = [PSCustomObject]@{
+            Entry                 = $Entry
+            Alias                 = $Alias
+            AliasLength           = $AliasLength
+            Confidence            = [double]$Score
+            ClientMatchConfidence = [double]$Score
+            HuduMatchConfidence   = [double]($Entry.Confidence ?? 0)
+            Reason                = $Reason
+        }
+    }
+}
+
 function Get-SharePointClientListItemSourceMatchCandidates {
     param (
         [Parameter(Mandatory)]
         [string]$SourceText,
 
         [Parameter(Mandatory)]
-        [array]$AttributionMap,
+        $AttributionMap,
 
         [switch]$AutoOnly,
 
@@ -184,70 +321,88 @@ function Get-SharePointClientListItemSourceMatchCandidates {
 
     $sourceTokens = @($normalizedSource -split '\s+' | Where-Object { $_ })
     $sourceTokenSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$sourceTokens)
+    $lookup = Resolve-SharePointClientAttributionLookup -AttributionMap $AttributionMap
+    $cacheKey = "$normalizedSource`n$([bool]$AutoOnly)`n$([bool]$AllowUnmatchedClientEntry)"
 
-    foreach ($entry in @($AttributionMap)) {
-        if ($AutoOnly -and -not $entry.AutoMatched -and -not $AllowUnmatchedClientEntry) { continue }
+    if ($lookup.SourceMatchCache.ContainsKey($cacheKey)) {
+        return @($lookup.SourceMatchCache[$cacheKey])
+    }
 
-        $bestScore = 0
-        $bestAlias = $null
-        $bestReason = $null
-        $bestAliasLength = 0
+    $bestByEntryKey = @{}
 
-        $normalizedCode = ConvertTo-AttributionNormalizedText ($entry.NormalizedClientCode ?? $entry.ClientCode)
-        if ($normalizedCode -and $normalizedCode.Length -ge 2 -and $sourceTokenSet.Contains($normalizedCode)) {
-            $bestScore = 100
-            $bestAlias = $normalizedCode
-            $bestReason = 'exact_client_code_in_source'
-            $bestAliasLength = $normalizedCode.Length
+    foreach ($sourceToken in $sourceTokens) {
+        if (-not $lookup.CodeToItems.ContainsKey($sourceToken)) { continue }
+
+        foreach ($codeItem in @($lookup.CodeToItems[$sourceToken])) {
+            if (-not (Test-SharePointAttributionEntryEligible -Entry $codeItem.Entry -AutoOnly:$AutoOnly -AllowUnmatchedClientEntry:$AllowUnmatchedClientEntry)) {
+                continue
+            }
+
+            Set-SharePointAttributionBestMatch `
+                -BestByEntryKey $bestByEntryKey `
+                -Entry $codeItem.Entry `
+                -EntryKey $codeItem.EntryKey `
+                -Alias $codeItem.Code `
+                -AliasLength $codeItem.Code.Length `
+                -Score 100 `
+                -Reason 'exact_client_code_in_source'
         }
+    }
 
-        foreach ($alias in @($entry.Aliases)) {
-            $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
-            if (-not $normalizedAlias -or $normalizedAlias.Length -lt 3) { continue }
+    $candidateAliasItems = [System.Collections.Generic.List[object]]::new()
+    $seenAliasKeys = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($sourceToken in $sourceTokens) {
+        if (-not $lookup.TokenToAliasItems.ContainsKey($sourceToken)) { continue }
 
-            $score = 0
-            $reason = $null
-            $aliasTokens = @($normalizedAlias -split '\s+' | Where-Object { $_ -and $_.Length -gt 1 })
-            $sharedTokenCount = if ($aliasTokens.Count -gt 0) {
-                @($aliasTokens | Where-Object { $sourceTokenSet.Contains($_) }).Count
-            } else {
-                0
-            }
-
-            if ($normalizedSource -eq $normalizedAlias -or $normalizedSource.Contains($normalizedAlias)) {
-                $score = 99
-                $reason = 'client_list_item_alias_in_source'
-            } elseif ($aliasTokens.Count -gt 0 -and $sharedTokenCount -eq $aliasTokens.Count) {
-                $score = 97
-                $reason = 'client_list_item_tokens_in_source'
-            } elseif ($sharedTokenCount -ge [Math]::Max(1, [Math]::Ceiling($aliasTokens.Count * 0.5))) {
-                $windowScore = Get-AttributionBestSourceWindowScore -Alias $normalizedAlias -SourceTokens $sourceTokens
-                if ($windowScore -ge 85) {
-                    $score = [double]$windowScore
-                    $reason = 'client_list_item_fuzzy_source_window'
-                }
-            }
-
-            if ($score -gt $bestScore -or ($score -eq $bestScore -and $normalizedAlias.Length -gt $bestAliasLength)) {
-                $bestScore = [double]$score
-                $bestAlias = $normalizedAlias
-                $bestReason = $reason
-                $bestAliasLength = $normalizedAlias.Length
-            }
-        }
-
-        if ($bestScore -gt 0) {
-            [PSCustomObject]@{
-                Entry                 = $entry
-                Alias                 = $bestAlias
-                AliasLength           = $bestAliasLength
-                Confidence            = [double]$bestScore
-                ClientMatchConfidence = [double]$bestScore
-                HuduMatchConfidence   = [double]($entry.Confidence ?? 0)
-                Reason                = $bestReason
+        foreach ($aliasItem in @($lookup.TokenToAliasItems[$sourceToken])) {
+            $aliasKey = "$($aliasItem.EntryKey)|$($aliasItem.Alias)"
+            if ($seenAliasKeys.Add($aliasKey)) {
+                $candidateAliasItems.Add($aliasItem)
             }
         }
     }
+
+    foreach ($aliasItem in @($candidateAliasItems)) {
+        if (-not (Test-SharePointAttributionEntryEligible -Entry $aliasItem.Entry -AutoOnly:$AutoOnly -AllowUnmatchedClientEntry:$AllowUnmatchedClientEntry)) {
+            continue
+        }
+
+        $sharedTokenCount = @($aliasItem.Tokens | Where-Object { $sourceTokenSet.Contains($_) }).Count
+        $score = 0
+        $reason = $null
+
+        if ($normalizedSource -eq $aliasItem.Alias -or $normalizedSource.Contains($aliasItem.Alias)) {
+            $score = 99
+            $reason = 'client_list_item_alias_in_source'
+        } elseif ($sharedTokenCount -eq $aliasItem.Tokens.Count) {
+            $score = 97
+            $reason = 'client_list_item_tokens_in_source'
+        } elseif ($sharedTokenCount -ge $aliasItem.RequiredMatches) {
+            $windowScore = Get-AttributionBestSourceWindowScore -Alias $aliasItem.Alias -SourceTokens $sourceTokens
+            if ($windowScore -ge 85) {
+                $score = [double]$windowScore
+                $reason = 'client_list_item_fuzzy_source_window'
+            }
+        }
+
+        if ($score -gt 0) {
+            Set-SharePointAttributionBestMatch `
+                -BestByEntryKey $bestByEntryKey `
+                -Entry $aliasItem.Entry `
+                -EntryKey $aliasItem.EntryKey `
+                -Alias $aliasItem.Alias `
+                -AliasLength $aliasItem.AliasLength `
+                -Score $score `
+                -Reason $reason
+        }
+    }
+
+    $matches = @($bestByEntryKey.Values)
+    if ($lookup.SourceMatchCache.Count -lt $lookup.SourceMatchCacheMaxItems) {
+        $lookup.SourceMatchCache[$cacheKey] = $matches
+    }
+
+    return $matches
 }
 
 function Get-SharePointClientListEntries {
@@ -331,6 +486,12 @@ function Import-SharePointClientAttributionClientFile {
     }
 
     foreach ($value in $values) {
+        $valuePropertyNames = if ($null -ne $value -and $value.PSObject.Properties) {
+            @($value.PSObject.Properties.Name)
+        } else {
+            @()
+        }
+
         $title = if ($null -ne $value -and $value.PSObject.Properties.Name -contains 'title') {
             [string]$value.title
         } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains 'Title') {
@@ -348,6 +509,42 @@ function Import-SharePointClientAttributionClientFile {
         }
 
         if ([string]::IsNullOrWhiteSpace($title)) { continue }
+
+        $importedAliases = [System.Collections.Generic.List[string]]::new()
+        foreach ($aliasPropertyName in @('aliases', 'Aliases', 'alias', 'Alias')) {
+            if ($valuePropertyNames -notcontains $aliasPropertyName) { continue }
+
+            foreach ($alias in @($value.PSObject.Properties[$aliasPropertyName].Value)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$alias)) {
+                    $importedAliases.Add([string]$alias)
+                }
+            }
+        }
+
+        $huduCompanyId = if ($valuePropertyNames -contains 'huduCompanyId') {
+            $value.huduCompanyId
+        } elseif ($valuePropertyNames -contains 'HuduCompanyId') {
+            $value.HuduCompanyId
+        } elseif ($valuePropertyNames -contains 'companyId') {
+            $value.companyId
+        } elseif ($valuePropertyNames -contains 'CompanyId') {
+            $value.CompanyId
+        } else {
+            $null
+        }
+
+        $huduCompanyName = if ($valuePropertyNames -contains 'huduCompanyName') {
+            [string]$value.huduCompanyName
+        } elseif ($valuePropertyNames -contains 'HuduCompanyName') {
+            [string]$value.HuduCompanyName
+        } elseif ($valuePropertyNames -contains 'companyName') {
+            [string]$value.companyName
+        } elseif ($valuePropertyNames -contains 'CompanyName') {
+            [string]$value.CompanyName
+        } else {
+            $null
+        }
+
         $parsed = ConvertFrom-SharePointClientTitle -Title $title
         [PSCustomObject]@{
             SharePointItemId = $null
@@ -363,6 +560,9 @@ function Import-SharePointClientAttributionClientFile {
             Provider         = $parsed.Provider
             NormalizedName   = $parsed.NormalizedName
             StrippedName     = $parsed.StrippedName
+            ImportedAliases  = @($importedAliases)
+            HuduCompanyId    = $huduCompanyId
+            HuduCompanyName  = $huduCompanyName
             AttributionSource = 'client_file'
         }
     }
@@ -418,14 +618,43 @@ function New-HuduClientAttributionMapFromEntries {
     )
 
     foreach ($entry in @($Entries)) {
-        $candidates = @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
+        $explicitCompanyId = $entry.HuduCompanyId ?? $entry.CompanyId
+        $explicitCompanyName = $entry.HuduCompanyName ?? $entry.CompanyName
+        $explicitCompany = $null
+
+        if ($explicitCompanyId) {
+            $explicitCompany = @($Companies | Where-Object { [string]$_.Id -eq [string]$explicitCompanyId } | Select-Object -First 1)[0]
+        }
+
+        if (-not $explicitCompany -and -not [string]::IsNullOrWhiteSpace([string]$explicitCompanyName)) {
+            $normalizedExplicitCompanyName = ConvertTo-AttributionNormalizedText $explicitCompanyName
+            $explicitCompany = @(
+                $Companies |
+                    Where-Object { (ConvertTo-AttributionNormalizedText $_.Name) -eq $normalizedExplicitCompanyName } |
+                    Select-Object -First 1
+            )[0]
+        }
+
+        $candidates = if ($explicitCompany) {
+            @(
+                [PSCustomObject]@{
+                    CompanyId   = $explicitCompany.Id
+                    CompanyName = $explicitCompany.Name
+                    Score       = 100
+                    Reason      = 'client_file_explicit_hudu_company'
+                }
+            )
+        } else {
+            @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
+        }
+
         $best = $candidates | Select-Object -First 1
         $second = $candidates | Select-Object -Skip 1 -First 1
         $gap = if ($second) { [double]$best.Score - [double]$second.Score } elseif ($best) { [double]$best.Score } else { 0 }
         $autoMatched = ($best -and [double]$best.Score -ge $MinScore -and $gap -ge $MinGap)
         $aliases = [System.Collections.Generic.List[string]]::new()
 
-        foreach ($alias in @($entry.ClientName, $entry.StrippedName)) {
+        foreach ($alias in (@($entry.ClientName, $entry.StrippedName) + @($entry.ImportedAliases))) {
             $normalizedAlias = ConvertTo-AttributionNormalizedText $alias
             if ($normalizedAlias -and $normalizedAlias.Length -ge 3 -and -not $aliases.Contains($normalizedAlias)) {
                 $aliases.Add($normalizedAlias)
@@ -479,7 +708,7 @@ function Resolve-HuduCompanyFromSharePointAttributionMap {
         [string]$SourceText,
 
         [Parameter(Mandatory)]
-        [array]$AttributionMap,
+        $AttributionMap,
 
         [switch]$AutoOnly,
 

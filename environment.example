@@ -35,6 +35,8 @@ $huduapikey = ""
 # $SharePointClientAttributionEnabled = $true
 # $SharePointClientAttributionAutoApply = $true
 # $SharePointClientAttributionClientsPath = ".\clients.json"
+# clients.json can be a string array, or objects with name/title, aliases,
+# huduCompanyId/companyId, and huduCompanyName/companyName.
 # $SharePointClientAttributionUseCachedMap = $true
 # $SharePointClientAttributionForceRebuildMap = $false
 # $SharePointClientAttributionListNames = @("Client List")

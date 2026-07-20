@@ -16,7 +16,7 @@ Set-PrintAndLog -message "Exporting structured SharePoint lists as per-company J
 $structuredListExport = Export-SharePointStructuredListJson `
     -ManifestSet $manifestSet `
     -ListNames $structuredListNames `
-    -AttributionMap $ClientAttributionMap `
+    -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
     -OutputDirectory $RunSummary.OutputJsonFiles.StructuredListJsonDir `
     -IndexPath $RunSummary.OutputJsonFiles.StructuredListJsonIndex
 

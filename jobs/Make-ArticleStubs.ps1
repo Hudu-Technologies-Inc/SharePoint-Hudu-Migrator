@@ -3,6 +3,58 @@ $FolderResolutionCache = @{}
 $BaseSitePath = (Get-Item $allSitesfolder).FullName
 Set-PrintAndLog -message "BaseSitePath set to $BaseSitePath" -Color Cyan
 $docsToStub = @($successConverted | Where-Object { $_.PSObject.Properties.Name -contains 'ContentPreview' -and $_.ContentPreview })
+
+function Get-SharePointDocAttributionSourceText {
+    param ($Doc)
+
+    @(
+        $Doc.SiteName
+        $Doc.DriveName
+        $Doc.parentDrivePath
+        $Doc.RelativePath
+        $Doc.LocalPath
+        $Doc.webViewUrl
+        $Doc.title
+    ) -join ' '
+}
+
+function Resolve-SharePointDocClientAttribution {
+    param (
+        [Parameter(Mandatory)] [string]$SourceText
+    )
+
+    if (-not $RunSummary.SetupInfo.ClientAttributionAutoApply -or $ClientAttributionMap.Count -lt 1) {
+        return $null
+    }
+
+    $attributionMatch = Resolve-HuduCompanyFromSharePointAttributionMap `
+        -SourceText $SourceText `
+        -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
+        -AutoOnly `
+        -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
+        -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
+        -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
+
+    if (-not $attributionMatch) { return $null }
+
+    try {
+        $attributionEntry = Confirm-HuduCompanyForSharePointAttributionMatch `
+            -AttributionMatch $attributionMatch `
+            -AttributionMap $ClientAttributionMap `
+            -CreateMissing:$RunSummary.SetupInfo.ClientAttributionCreateMissing
+    } catch {
+        Set-PrintAndLog -message "Failed to create Hudu company for client list item '$($attributionMatch.Entry.ClientName)': $($_.Exception.Message)" -Color Red
+        return $null
+    }
+
+    if (-not $attributionEntry -or -not $attributionEntry.HuduCompanyId) { return $null }
+
+    [PSCustomObject]@{
+        Entry = $attributionEntry
+        Match = $attributionMatch
+    }
+}
+
 $docIDX=0
 foreach ($doc in $docsToStub) {
     $docIDX += 1
@@ -13,57 +65,39 @@ foreach ($doc in $docsToStub) {
         0 { $doc.CompanyId = $SingleCompanyChoice.id }
         1 { $doc.CompanyId = $null }
         3 {
-            $siteCompany = Resolve-HuduCompanyFromSiteCompanyMap -SiteId $doc.SiteId -SiteName $doc.SiteName -SiteCompanyMap $SiteCompanyMap
-            if ($siteCompany -and $siteCompany.HuduCompanyId) {
+            $clientAttribution = if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+                Resolve-SharePointDocClientAttribution -SourceText (Get-SharePointDocAttributionSourceText -Doc $doc)
+            } else {
+                $null
+            }
+
+            if ($clientAttribution) {
+                $doc.CompanyId = $clientAttribution.Entry.HuduCompanyId
+                $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $clientAttribution.Entry -Force
+                Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
+            } else {
+                $siteCompany = Resolve-HuduCompanyFromSiteCompanyMap -SiteId $doc.SiteId -SiteName $doc.SiteName -SiteCompanyMap $SiteCompanyMap
+                if ($siteCompany -and $siteCompany.HuduCompanyId) {
                 $doc.CompanyId = $siteCompany.HuduCompanyId
                 $doc | Add-Member -NotePropertyName SiteCompanyMatch -NotePropertyValue $siteCompany -Force
                 Set-PrintAndLog -message "Assigned '$($doc.title)' to per-site Hudu company '$($siteCompany.HuduCompanyName)'." -Color Cyan
-            } else {
-                Set-PrintAndLog -message "No per-site Hudu company available for '$($doc.SiteName)'; falling back to manual company selection." -Color Yellow
-                $doc.CompanyId = (
-                    Select-ObjectFromList `
-                        -message "Migrating Article: $($doc.ContentPreview ?? "no preview")... Which company to migrate into?" `
-                        -objects $Attribution_Options
-                ).CompanyId
+                } else {
+                    Set-PrintAndLog -message "No client or per-site Hudu company available for '$($doc.SiteName)'; falling back to manual company selection." -Color Yellow
+                    $doc.CompanyId = (
+                        Select-ObjectFromList `
+                            -message "Migrating Article: $($doc.ContentPreview ?? "no preview")... Which company to migrate into?" `
+                            -objects $Attribution_Options
+                    ).CompanyId
+                }
             }
         }
         default {
-            $sourceText = @(
-                $doc.SiteName
-                $doc.RelativePath
-                $doc.LocalPath
-                $doc.title
-            ) -join ' '
-            $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
-                Resolve-HuduCompanyFromSharePointAttributionMap `
-                    -SourceText $sourceText `
-                    -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
-                    -AutoOnly `
-                    -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
-                    -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
-                    -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
-            } else {
-                $null
-            }
+            $clientAttribution = Resolve-SharePointDocClientAttribution -SourceText (Get-SharePointDocAttributionSourceText -Doc $doc)
 
-            $attributionEntry = if ($attributionMatch) {
-                try {
-                    Confirm-HuduCompanyForSharePointAttributionMatch `
-                        -AttributionMatch $attributionMatch `
-                        -AttributionMap $ClientAttributionMap `
-                        -CreateMissing:$RunSummary.SetupInfo.ClientAttributionCreateMissing
-                } catch {
-                    Set-PrintAndLog -message "Failed to create Hudu company for client list item '$($attributionMatch.Entry.ClientName)': $($_.Exception.Message)" -Color Red
-                    $null
-                }
-            } else {
-                $null
-            }
-
-            if ($attributionEntry -and $attributionEntry.HuduCompanyId) {
-                $doc.CompanyId = $attributionEntry.HuduCompanyId
-                $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $attributionEntry -Force
-                Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to client list item '$($attributionEntry.RawTitle)' => Hudu company '$($attributionEntry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Confidence)%)." -Color Cyan
+            if ($clientAttribution) {
+                $doc.CompanyId = $clientAttribution.Entry.HuduCompanyId
+                $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $clientAttribution.Entry -Force
+                Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
             } else {
                 $doc.CompanyId = (
                     Select-ObjectFromList `

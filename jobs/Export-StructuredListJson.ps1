@@ -17,6 +17,7 @@ $structuredListExport = Export-SharePointStructuredListJson `
     -ManifestSet $manifestSet `
     -ListNames $structuredListNames `
     -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
+    -PrimaryAttributionFieldNames $RunSummary.SetupInfo.ClientAttributionFieldNames `
     -OutputDirectory $RunSummary.OutputJsonFiles.StructuredListJsonDir `
     -IndexPath $RunSummary.OutputJsonFiles.StructuredListJsonIndex
 

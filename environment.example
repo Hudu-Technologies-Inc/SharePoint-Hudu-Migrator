@@ -41,12 +41,19 @@ $huduapikey = ""
 # Defaults shown here.
 # $SharePointClientAttributionEnabled = $true
 # $SharePointClientAttributionAutoApply = $true
+# In per-site destination mode, try client-list attribution before falling
+# back to matching the SharePoint site name to a company.
+# $SharePointPreferClientAttributionOverSiteCompany = $true
 # $SharePointClientAttributionClientsPath = ".\clients.json"
 # clients.json can be a string array, or objects with name/title, aliases,
 # huduCompanyId/companyId, and huduCompanyName/companyName.
 # $SharePointClientAttributionUseCachedMap = $true
 # $SharePointClientAttributionForceRebuildMap = $false
+# Use this to elect which SharePoint list(s) contain client names.
 # $SharePointClientAttributionListNames = @("Client List")
+# Use this to elect which fields on other lists point at the client/company.
+# Internal names like Select_x0020_a_x0020_Client are decoded before matching.
+# $SharePointClientAttributionFieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle")
 # $SharePointClientAttributionMinScore = 95
 # $SharePointClientAttributionMinGap = 5
 # $SharePointClientAttributionListItemMinScore = 95

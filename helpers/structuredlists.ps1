@@ -60,16 +60,51 @@ function Get-SharePointListItemAttributionSourceText {
     return ($parts -join ' ')
 }
 
+function ConvertFrom-SharePointInternalFieldName {
+    param ([string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name)) { return "" }
+
+    return ([regex]::Replace($Name, '_x(?<hex>[0-9a-fA-F]{4})_', {
+        param($Match)
+        [string][char][Convert]::ToInt32($Match.Groups['hex'].Value, 16)
+    }))
+}
+
 function Get-SharePointListItemPrimaryAttributionSourceText {
-    param ($Item)
+    param (
+        $Item,
+        [string[]]$FieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle")
+    )
 
     if (-not $Item.fields) { return $null }
-    if (-not ($Item.fields.PSObject.Properties.Name -contains 'LinkTitle')) { return $null }
 
-    $linkTitle = $Item.fields.LinkTitle
-    if ([string]::IsNullOrWhiteSpace([string]$linkTitle)) { return $null }
+    $normalizedFieldNames = @(
+        $FieldNames |
+            ForEach-Object { ConvertTo-AttributionNormalizedText $_ } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+    )
 
-    return [string]$linkTitle
+    foreach ($property in $Item.fields.PSObject.Properties) {
+        if ($property.Name -like '@odata*') { continue }
+        if ($null -eq $property.Value) { continue }
+
+        $normalizedPropertyName = ConvertTo-AttributionNormalizedText $property.Name
+        $normalizedDecodedPropertyName = ConvertTo-AttributionNormalizedText (ConvertFrom-SharePointInternalFieldName $property.Name)
+
+        if ($normalizedFieldNames -notcontains $normalizedPropertyName -and $normalizedFieldNames -notcontains $normalizedDecodedPropertyName) {
+            continue
+        }
+
+        if ($property.Value -is [string] -or $property.Value -is [ValueType]) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+                return [string]$property.Value
+            }
+        }
+    }
+
+    return $null
 }
 
 function Get-SafeStructuredListPathName {
@@ -92,6 +127,7 @@ function Export-SharePointStructuredListJson {
         [Parameter(Mandatory)] $ManifestSet,
         [Parameter(Mandatory)] [string[]]$ListNames,
         $AttributionMap = @(),
+        [string[]]$PrimaryAttributionFieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle"),
         [Parameter(Mandatory)] [string]$OutputDirectory,
         [Parameter(Mandatory)] [string]$IndexPath
     )
@@ -112,6 +148,7 @@ function Export-SharePointStructuredListJson {
         @($AttributionMap).Count -gt 0
     }
 
+    $processedItems = 0
     foreach ($manifest in @($ManifestSet.Manifests)) {
         foreach ($siteEntry in @($manifest.sites)) {
             foreach ($listEntry in @($siteEntry.lists)) {
@@ -122,9 +159,14 @@ function Export-SharePointStructuredListJson {
 
                 $listBaseName = Get-SharePointStructuredListBaseName $listName
                 foreach ($item in @($listEntry.items)) {
+                    $processedItems++
+                    if ($processedItems -eq 1 -or $processedItems % 1000 -eq 0) {
+                        Set-PrintAndLog -message "Structured list export processed $processedItems item(s); current list '$listName'." -Color DarkCyan
+                    }
+
                     $match = $null
                     if ($hasAttributionMap) {
-                        $primarySourceText = Get-SharePointListItemPrimaryAttributionSourceText -Item $item
+                        $primarySourceText = Get-SharePointListItemPrimaryAttributionSourceText -Item $item -FieldNames $PrimaryAttributionFieldNames
                         if (-not [string]::IsNullOrWhiteSpace([string]$primarySourceText)) {
                             $primaryCacheKey = ConvertTo-AttributionNormalizedText $primarySourceText
                             if ($primaryAttributionCache.ContainsKey($primaryCacheKey)) {

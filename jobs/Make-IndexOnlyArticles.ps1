@@ -80,6 +80,59 @@ $($rows -join "`n")
 "@
 }
 
+function Get-SharePointIndexAttributionSourceText {
+    param (
+        [string]$RelativeFolderPath,
+        [array]$Files
+    )
+
+    @(
+        $RelativeFolderPath
+        @($Files | Select-Object -First 10 | ForEach-Object { $_.SiteName })
+        @($Files | Select-Object -First 10 | ForEach-Object { $_.DriveName })
+        @($Files | Select-Object -First 10 | ForEach-Object { $_.parentDrivePath })
+        @($Files | Select-Object -First 10 | ForEach-Object { $_.RelativePath })
+        @($Files | Select-Object -First 10 | ForEach-Object { $_.Name })
+    ) -join ' '
+}
+
+function Resolve-SharePointIndexClientAttribution {
+    param (
+        [Parameter(Mandatory)] [string]$SourceText
+    )
+
+    if (-not $RunSummary.SetupInfo.ClientAttributionAutoApply -or $ClientAttributionMap.Count -lt 1) {
+        return $null
+    }
+
+    $attributionMatch = Resolve-HuduCompanyFromSharePointAttributionMap `
+        -SourceText $SourceText `
+        -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
+        -AutoOnly `
+        -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
+        -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
+        -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
+
+    if (-not $attributionMatch) { return $null }
+
+    try {
+        $attributionEntry = Confirm-HuduCompanyForSharePointAttributionMatch `
+            -AttributionMatch $attributionMatch `
+            -AttributionMap $ClientAttributionMap `
+            -CreateMissing:$RunSummary.SetupInfo.ClientAttributionCreateMissing
+    } catch {
+        Set-PrintAndLog -message "Failed to create Hudu company for client list item '$($attributionMatch.Entry.ClientName)': $($_.Exception.Message)" -Color Red
+        return $null
+    }
+
+    if (-not $attributionEntry -or -not $attributionEntry.HuduCompanyId) { return $null }
+
+    [PSCustomObject]@{
+        Entry = $attributionEntry
+        Match = $attributionMatch
+    }
+}
+
 function Get-IndexOnlyCompanyId {
     param (
         [string]$RelativeFolderPath,
@@ -90,57 +143,38 @@ function Get-IndexOnlyCompanyId {
         0 { return $SingleCompanyChoice.id }
         1 { return $null }
         3 {
-            $sampleFile = @($Files | Select-Object -First 1)[0]
-            $siteCompany = Resolve-HuduCompanyFromSiteCompanyMap -SiteId $sampleFile.SiteId -SiteName $sampleFile.SiteName -SiteCompanyMap $SiteCompanyMap
-            if ($siteCompany -and $siteCompany.HuduCompanyId) {
-                Set-PrintAndLog -message "Assigned index-only folder '$RelativeFolderPath' to per-site Hudu company '$($siteCompany.HuduCompanyName)'." -Color Cyan
-                return $siteCompany.HuduCompanyId
+            $clientAttribution = if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+                Resolve-SharePointIndexClientAttribution -SourceText (Get-SharePointIndexAttributionSourceText -RelativeFolderPath $RelativeFolderPath -Files $Files)
+            } else {
+                $null
             }
 
-            Set-PrintAndLog -message "No per-site Hudu company available for index-only folder '$RelativeFolderPath'; falling back to manual company selection." -Color Yellow
-            $sample = @($Files | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ", "
-            return (
-                Select-ObjectFromList `
-                    -message "Index-only folder: $RelativeFolderPath ($(@($Files).Count) file(s); $sample). Which company to migrate into?" `
-                    -objects $Attribution_Options
-            ).CompanyId
+            if ($clientAttribution) {
+                Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
+                return $clientAttribution.Entry.HuduCompanyId
+            } else {
+                $sampleFile = @($Files | Select-Object -First 1)[0]
+                $siteCompany = Resolve-HuduCompanyFromSiteCompanyMap -SiteId $sampleFile.SiteId -SiteName $sampleFile.SiteName -SiteCompanyMap $SiteCompanyMap
+                if ($siteCompany -and $siteCompany.HuduCompanyId) {
+                    Set-PrintAndLog -message "Assigned index-only folder '$RelativeFolderPath' to per-site Hudu company '$($siteCompany.HuduCompanyName)'." -Color Cyan
+                    return $siteCompany.HuduCompanyId
+                }
+
+                Set-PrintAndLog -message "No client or per-site Hudu company available for index-only folder '$RelativeFolderPath'; falling back to manual company selection." -Color Yellow
+                $sample = @($Files | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ", "
+                return (
+                    Select-ObjectFromList `
+                        -message "Index-only folder: $RelativeFolderPath ($(@($Files).Count) file(s); $sample). Which company to migrate into?" `
+                        -objects $Attribution_Options
+                ).CompanyId
+            }
         }
         default {
-            $sourceText = @(
-                $RelativeFolderPath
-                @($Files | Select-Object -First 5 | ForEach-Object { $_.SiteName })
-                @($Files | Select-Object -First 5 | ForEach-Object { $_.RelativePath })
-                @($Files | Select-Object -First 5 | ForEach-Object { $_.Name })
-            ) -join ' '
-            $attributionMatch = if ($RunSummary.SetupInfo.ClientAttributionAutoApply -and $ClientAttributionMap.Count -gt 0) {
-                Resolve-HuduCompanyFromSharePointAttributionMap `
-                    -SourceText $sourceText `
-                    -AttributionMap ($ClientAttributionResolver ?? $ClientAttributionMap) `
-                    -AutoOnly `
-                    -AllowUnmatchedClientEntry:$RunSummary.SetupInfo.ClientAttributionCreateMissing `
-                    -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
-                    -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
-            } else {
-                $null
-            }
+            $clientAttribution = Resolve-SharePointIndexClientAttribution -SourceText (Get-SharePointIndexAttributionSourceText -RelativeFolderPath $RelativeFolderPath -Files $Files)
 
-            $attributionEntry = if ($attributionMatch) {
-                try {
-                    Confirm-HuduCompanyForSharePointAttributionMatch `
-                        -AttributionMatch $attributionMatch `
-                        -AttributionMap $ClientAttributionMap `
-                        -CreateMissing:$RunSummary.SetupInfo.ClientAttributionCreateMissing
-                } catch {
-                    Set-PrintAndLog -message "Failed to create Hudu company for client list item '$($attributionMatch.Entry.ClientName)': $($_.Exception.Message)" -Color Red
-                    $null
-                }
-            } else {
-                $null
-            }
-
-            if ($attributionEntry -and $attributionEntry.HuduCompanyId) {
-                Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to client list item '$($attributionEntry.RawTitle)' => Hudu company '$($attributionEntry.HuduCompanyName)' via '$($attributionMatch.Alias)' ($($attributionMatch.Confidence)%)." -Color Cyan
-                return $attributionEntry.HuduCompanyId
+            if ($clientAttribution) {
+                Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
+                return $clientAttribution.Entry.HuduCompanyId
             }
 
             $sample = @($Files | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ", "

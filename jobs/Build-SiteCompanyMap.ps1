@@ -14,6 +14,13 @@ if (
 ) {
     try {
         $SiteCompanyMap = @(Get-Content -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyMap -Raw | ConvertFrom-Json)
+        if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+            $beforeFilterCount = $SiteCompanyMap.Count
+            $SiteCompanyMap = @($SiteCompanyMap | Where-Object { $_.Status -eq 'Matched' })
+            if ($SiteCompanyMap.Count -ne $beforeFilterCount) {
+                Set-PrintAndLog -message "Client attribution is preferred; ignored $($beforeFilterCount - $SiteCompanyMap.Count) cached site-company map item(s) that were not direct matches." -Color Yellow
+            }
+        }
         Set-PrintAndLog -message "Loaded cached SharePoint site company map: $($SiteCompanyMap.Count) item(s) from $($RunSummary.OutputJsonFiles.SiteCompanyMap)" -Color Cyan
         return
     } catch {
@@ -22,7 +29,12 @@ if (
     }
 }
 
-Set-PrintAndLog -message "Building SharePoint site to Hudu company map. Missing companies will $(if ($RunSummary.SetupInfo.SiteCompanyCreateMissing) { 'be created' } else { 'not be created' })." -Color Cyan
+$siteCompanyCreateMissing = [bool]$RunSummary.SetupInfo.SiteCompanyCreateMissing
+if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+    $siteCompanyCreateMissing = $false
+}
+
+Set-PrintAndLog -message "Building SharePoint site to Hudu company map. Missing companies will $(if ($siteCompanyCreateMissing) { 'be created' } else { 'not be created' })." -Color Cyan
 
 $siteCompanyMapItems = [System.Collections.Generic.List[object]]::new()
 
@@ -42,7 +54,7 @@ foreach ($site in @($userSelectedSites)) {
         $status = 'Matched'
         Set-PrintAndLog -message "Matched SharePoint site '$siteCompanyName' to Hudu company '$($company.Name)' ($($best.Score)%, gap $gap)." -Color Cyan
     }
-    elseif ($RunSummary.SetupInfo.SiteCompanyCreateMissing) {
+    elseif ($siteCompanyCreateMissing) {
         Set-PrintAndLog -message "No confident Hudu company match for SharePoint site '$siteCompanyName'; creating company." -Color Yellow
         try {
             $created = New-HuduCompany -Name $siteCompanyName

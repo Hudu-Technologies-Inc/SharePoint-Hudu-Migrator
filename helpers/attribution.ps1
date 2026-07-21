@@ -3,7 +3,8 @@ function ConvertTo-AttributionNormalizedText {
 
     if ($null -eq $Value) { return "" }
 
-    $text = ([string]$Value).ToLowerInvariant()
+    $text = ([string]$Value).Normalize([Text.NormalizationForm]::FormD).ToLowerInvariant()
+    $text = $text -replace '\p{Mn}', ''
     $text = [System.Web.HttpUtility]::HtmlDecode($text)
     $text = $text -replace '&', ' and '
     $text = $text -replace '[^a-z0-9]+', ' '
@@ -16,7 +17,8 @@ function ConvertTo-AttributionCompactKey {
 
     if ($null -eq $Value) { return "" }
 
-    $text = ([string]$Value).ToLowerInvariant()
+    $text = ([string]$Value).Normalize([Text.NormalizationForm]::FormD).ToLowerInvariant()
+    $text = $text -replace '\p{Mn}', ''
     $text = [System.Web.HttpUtility]::HtmlDecode($text)
     $text = $text -replace '&', 'and'
     $text = $text -replace '[^a-z0-9]+', ''
@@ -42,6 +44,22 @@ function Remove-AttributionLegalSuffixes {
     }
 
     return (($tokens | Where-Object { $_ }) -join ' ').Trim()
+}
+
+function Get-AttributionSignificantTokens {
+    param ($Value)
+
+    $ignoredTokens = [System.Collections.Generic.HashSet[string]]::new([string[]]@(
+        'the', 'and', 'for', 'with', 'from',
+        'incorporated', 'corporation', 'corp', 'limited', 'ltd',
+        'inc', 'llc', 'llp', 'lp', 'plc', 'co', 'company'
+    ))
+
+    @(
+        ConvertTo-AttributionNormalizedText $Value -split '\s+' |
+            Where-Object { $_ -and $_.Length -gt 2 -and -not $ignoredTokens.Contains($_) } |
+            Sort-Object -Unique
+    )
 }
 
 function ConvertFrom-SharePointClientTitle {
@@ -680,6 +698,7 @@ function New-HuduClientAttributionMapFromEntries {
     $companyByCompactName = @{}
     $companyByStrippedName = @{}
     $companyByCompactStrippedName = @{}
+    $companyByToken = @{}
 
     foreach ($company in @($Companies)) {
         $companyName = [string]$company.Name
@@ -697,6 +716,10 @@ function New-HuduClientAttributionMapFromEntries {
                 $pair.Table[$pair.Key] = [System.Collections.Generic.List[object]]::new()
             }
             $pair.Table[$pair.Key].Add($company)
+        }
+
+        foreach ($token in @((Get-AttributionSignificantTokens $companyName) + (Get-AttributionSignificantTokens $strippedName) | Sort-Object -Unique)) {
+            Add-SharePointAttributionIndexValue -Table $companyByToken -Key $token -Value $company
         }
     }
 
@@ -758,7 +781,23 @@ function New-HuduClientAttributionMapFromEntries {
                         }
                 )
             } else {
-                @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies $Companies | Sort-Object Score -Descending)
+                $candidateCompaniesById = [ordered]@{}
+                foreach ($token in @((Get-AttributionSignificantTokens $entry.ClientName) + (Get-AttributionSignificantTokens $entry.StrippedName) | Sort-Object -Unique)) {
+                    if (-not $companyByToken.ContainsKey($token)) { continue }
+
+                    foreach ($company in @($companyByToken[$token])) {
+                        $companyKey = [string]($company.Id ?? $company.Name)
+                        if (-not $candidateCompaniesById.Contains($companyKey)) {
+                            $candidateCompaniesById[$companyKey] = $company
+                        }
+                    }
+                }
+
+                if ($candidateCompaniesById.Count -gt 0) {
+                    @(Get-HuduCompanyAttributionCandidates -ClientEntry $entry -Companies @($candidateCompaniesById.Values) | Sort-Object Score -Descending)
+                } else {
+                    @()
+                }
             }
         }
 

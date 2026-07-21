@@ -87,6 +87,7 @@ $RunSummary=@{
         )
         ClientAttributionEnabled = [bool]($SharePointClientAttributionEnabled ?? $true)
         ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)
+        PreferClientAttributionOverSiteCompany = [bool]($SharePointPreferClientAttributionOverSiteCompany ?? $true)
         ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)
         ClientAttributionMinGap = [int]($SharePointClientAttributionMinGap ?? 5)
         ClientAttributionClientsPath = $($SharePointClientAttributionClientsPath ?? (Join-Path $workdir "clients.json"))
@@ -105,6 +106,13 @@ $RunSummary=@{
                 @($SharePointClientAttributionListNames)
             } else {
                 "Client List"
+            }
+        )
+        ClientAttributionFieldNames = @(
+            if ($null -ne $SharePointClientAttributionFieldNames) {
+                @($SharePointClientAttributionFieldNames)
+            } else {
+                @("Select a Client", "Client", "Customer", "Company", "LinkTitle")
             }
         )
         StructuredListJsonNames = @(

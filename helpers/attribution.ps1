@@ -230,7 +230,7 @@ function Test-SharePointAttributionEntryEligible {
 
 function New-SharePointClientAttributionLookup {
     param (
-        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [array]$AttributionMap
     )
 
@@ -688,11 +688,15 @@ function Get-HuduCompanyAttributionCandidates {
 
 function New-HuduClientAttributionMapFromEntries {
     param (
-        [Parameter(Mandatory)] [array]$Entries,
+        [AllowEmptyCollection()] [array]$Entries,
         [Parameter(Mandatory)] [array]$Companies,
         [int]$MinScore = 95,
         [int]$MinGap = 5
     )
+
+    if ($null -eq $Entries -or $Entries.Count -lt 1) {
+        return @()
+    }
 
     $companyByNormalizedName = @{}
     $companyByCompactName = @{}
@@ -852,6 +856,10 @@ function New-SharePointClientAttributionMap {
     )
 
     $entries = @(Get-SharePointClientListEntries -ManifestSet $ManifestSet -ListNames $ListNames)
+    if ($entries.Count -lt 1) {
+        return @()
+    }
+
     New-HuduClientAttributionMapFromEntries -Entries $entries -Companies $Companies -MinScore $MinScore -MinGap $MinGap
 }
 

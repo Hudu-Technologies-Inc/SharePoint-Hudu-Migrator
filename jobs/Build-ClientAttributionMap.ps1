@@ -77,7 +77,7 @@ if (-not [string]::IsNullOrWhiteSpace([string]$resolvedClientsPath)) {
             Set-PrintAndLog -message "Predetermined SharePoint client list was empty; falling back to manifest list(s)." -Color Yellow
         }
     } else {
-        Set-PrintAndLog -message "Predetermined SharePoint client list not found at $resolvedClientsPath; falling back to manifest list(s)." -Color DarkGray
+        Set-PrintAndLog -message "Predetermined SharePoint client list not found. Configured path: '$clientsPath'; resolved path: '$resolvedClientsPath'. Falling back to manifest list(s)." -Color DarkGray
     }
 }
 
@@ -115,6 +115,13 @@ foreach ($mapEntry in @($ClientAttributionMap)) {
     if ([string]::IsNullOrWhiteSpace([string]$mapEntry.AttributionSource)) {
         $mapEntry | Add-Member -MemberType NoteProperty -Name AttributionSource -Value $clientAttributionSource -Force
     }
+}
+
+if ($ClientAttributionMap.Count -lt 1) {
+    Set-PrintAndLog -message "No client attribution entries were found from $clientAttributionSource; client auto-attribution will be disabled for this run." -Color Yellow
+    $ClientAttributionLookup = $null
+    $ClientAttributionResolver = @()
+    return
 }
 
 $ClientAttributionLookup = New-SharePointClientAttributionLookup -AttributionMap $ClientAttributionMap

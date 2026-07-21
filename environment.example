@@ -44,6 +44,13 @@ $huduapikey = ""
 # In per-site destination mode, try client-list attribution before falling
 # back to matching the SharePoint site name to a company.
 # $SharePointPreferClientAttributionOverSiteCompany = $true
+# Build per-site and per-list client designations from list item metadata.
+# A designation is applied when one company has enough votes from configured
+# client fields in that site/list.
+# $SharePointClientAttributionUseSiteDesignations = $true
+# $SharePointClientAttributionUseListDesignations = $true
+# $SharePointClientAttributionDesignationMinShare = 0.8
+# $SharePointClientAttributionDesignationMinItems = 1
 # $SharePointClientAttributionClientsPath = ".\clients.json"
 # clients.json can be a string array, or objects with name/title, aliases,
 # huduCompanyId/companyId, and huduCompanyName/companyName.

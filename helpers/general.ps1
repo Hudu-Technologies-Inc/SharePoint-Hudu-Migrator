@@ -202,24 +202,40 @@ function Write-InspectObject {
     return $lines -join "`n"
 }
 
+function Get-SelectObjectListDisplayText {
+    param (
+        $Object,
+        [bool]$InspectObjects = $false
+    )
+
+    if ($InspectObjects) {
+        return (Write-InspectObject -object $Object)
+    } elseif ($null -ne $Object.OptionMessage) {
+        return [string]$Object.OptionMessage
+    } elseif (-not $([string]::IsNullOrEmpty($Object.attributes.name))) {
+        return [string]$Object.attributes.name
+    } elseif (-not $([string]::IsNullOrEmpty($Object.name))) {
+        return [string]$Object.name
+    } elseif (-not $([string]::IsNullOrEmpty($Object.Name))) {
+        return [string]$Object.Name
+    }
+
+    return [string]$Object
+}
+
 function Select-ObjectFromList($objects, $message, $inspectObjects = $false, $allowNull = $false) {
+    $objects = @($objects)
+    if ($objects.Count -gt 1 -and -not ($objects | Where-Object { $_ -is [string] })) {
+        $objects = @($objects | Sort-Object @{ Expression = { Get-SelectObjectListDisplayText -Object $_ -InspectObjects $inspectObjects } })
+    }
+
     $validated = $false
     while (-not $validated) {
         if ($allowNull) { Write-Host "0: None/Custom" }
 
         for ($i = 0; $i -lt $objects.Count; $i++) {
             $object = $objects[$i]
-            $displayLine = if ($inspectObjects) {
-                "$($i+1): $(Write-InspectObject -object $object)"
-            } elseif ($null -ne $object.OptionMessage) {
-                "$($i+1): $($object.OptionMessage)"
-            } elseif (-not $([string]::IsNullOrEmpty($object.attributes.name))) {
-                "$($i+1): $($object.attributes.name)"
-            } elseif (-not $([string]::IsNullOrEmpty($object.name))) {
-                "$($i+1): $($object.name)"
-            } else {
-                "$($i+1): $($object)"
-            }
+            $displayLine = "$($i+1): $(Get-SelectObjectListDisplayText -Object $object -InspectObjects $inspectObjects)"
             Write-Host $displayLine -ForegroundColor $(if ($i % 2 -eq 0) { 'Cyan' } else { 'Yellow' })
         }
 

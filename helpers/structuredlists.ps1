@@ -127,6 +127,7 @@ function Export-SharePointStructuredListJson {
         [Parameter(Mandatory)] $ManifestSet,
         [Parameter(Mandatory)] [string[]]$ListNames,
         $AttributionMap = @(),
+        $ClientDesignationMap = $null,
         [string[]]$PrimaryAttributionFieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle"),
         [Parameter(Mandatory)] [string]$OutputDirectory,
         [Parameter(Mandatory)] [string]$IndexPath
@@ -183,9 +184,20 @@ function Export-SharePointStructuredListJson {
                         }
                     }
 
-                    $companyId = $match.Entry.HuduCompanyId
-                    $companyName = $match.Entry.HuduCompanyName
-                    $matchStatus = if ($match) { 'Auto' } else { 'Unattributed' }
+                    $designation = if (-not $match) {
+                        Resolve-HuduCompanyFromClientDesignationMap `
+                            -SiteId $siteEntry.metadata.id `
+                            -ListId $listEntry.metadata.id `
+                            -ClientDesignationMap $ClientDesignationMap `
+                            -UseListDesignation:$RunSummary.SetupInfo.ClientAttributionUseListDesignations `
+                            -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations
+                    } else {
+                        $null
+                    }
+
+                    $companyId = if ($match) { $match.Entry.HuduCompanyId } elseif ($designation) { $designation.HuduCompanyId } else { $null }
+                    $companyName = if ($match) { $match.Entry.HuduCompanyName } elseif ($designation) { $designation.HuduCompanyName } else { $null }
+                    $matchStatus = if ($match) { 'Auto' } elseif ($designation) { "Designation:$($designation.Scope)" } else { 'Unattributed' }
                     if (-not $companyName) { $companyName = 'Unattributed' }
 
                     $companyFolderName = if ($companyId) {
@@ -234,8 +246,8 @@ function Export-SharePointStructuredListJson {
                         CreatedDateTime  = $item.createdDateTime
                         LastModified     = $item.lastModifiedDateTime
                         MatchStatus      = $matchStatus
-                        MatchAlias       = $match.Alias
-                        MatchConfidence  = $match.Confidence
+                        MatchAlias       = $match.Alias ?? $designation.MatchAlias
+                        MatchConfidence  = $match.Confidence ?? ([Math]::Round(([double]$designation.Share * 100), 2))
                         Fields           = $item.fields
                     })
 
@@ -245,7 +257,7 @@ function Export-SharePointStructuredListJson {
                         ListName         = $listBaseName
                         SharePointItemId = $item.id
                         MatchStatus      = $matchStatus
-                        MatchAlias       = $match.Alias
+                        MatchAlias       = $match.Alias ?? $designation.MatchAlias
                         OutputPath       = $outputPath
                     })
                 }

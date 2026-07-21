@@ -55,6 +55,15 @@ function Resolve-SharePointDocClientAttribution {
     }
 }
 
+function Resolve-SharePointDocClientDesignation {
+    param ($Doc)
+
+    Resolve-HuduCompanyFromClientDesignationMap `
+        -SiteId $Doc.SiteId `
+        -ClientDesignationMap $ClientDesignationMap `
+        -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations
+}
+
 $docIDX=0
 foreach ($doc in $docsToStub) {
     $docIDX += 1
@@ -65,13 +74,23 @@ foreach ($doc in $docsToStub) {
         0 { $doc.CompanyId = $SingleCompanyChoice.id }
         1 { $doc.CompanyId = $null }
         3 {
-            $clientAttribution = if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+            $clientDesignation = if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+                Resolve-SharePointDocClientDesignation -Doc $doc
+            } else {
+                $null
+            }
+
+            $clientAttribution = if (-not $clientDesignation -and $RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
                 Resolve-SharePointDocClientAttribution -SourceText (Get-SharePointDocAttributionSourceText -Doc $doc)
             } else {
                 $null
             }
 
-            if ($clientAttribution) {
+            if ($clientDesignation) {
+                $doc.CompanyId = $clientDesignation.HuduCompanyId
+                $doc | Add-Member -NotePropertyName ClientDesignationMatch -NotePropertyValue $clientDesignation -Force
+                Set-PrintAndLog -message "Assigned '$($doc.title)' to per-site client designation '$($clientDesignation.HuduCompanyName)' ($($clientDesignation.Votes)/$($clientDesignation.TotalVotes) votes)." -Color Cyan
+            } elseif ($clientAttribution) {
                 $doc.CompanyId = $clientAttribution.Entry.HuduCompanyId
                 $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $clientAttribution.Entry -Force
                 Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
@@ -92,9 +111,18 @@ foreach ($doc in $docsToStub) {
             }
         }
         default {
-            $clientAttribution = Resolve-SharePointDocClientAttribution -SourceText (Get-SharePointDocAttributionSourceText -Doc $doc)
+            $clientDesignation = Resolve-SharePointDocClientDesignation -Doc $doc
+            $clientAttribution = if (-not $clientDesignation) {
+                Resolve-SharePointDocClientAttribution -SourceText (Get-SharePointDocAttributionSourceText -Doc $doc)
+            } else {
+                $null
+            }
 
-            if ($clientAttribution) {
+            if ($clientDesignation) {
+                $doc.CompanyId = $clientDesignation.HuduCompanyId
+                $doc | Add-Member -NotePropertyName ClientDesignationMatch -NotePropertyValue $clientDesignation -Force
+                Set-PrintAndLog -message "Assigned '$($doc.title)' to per-site client designation '$($clientDesignation.HuduCompanyName)' ($($clientDesignation.Votes)/$($clientDesignation.TotalVotes) votes)." -Color Cyan
+            } elseif ($clientAttribution) {
                 $doc.CompanyId = $clientAttribution.Entry.HuduCompanyId
                 $doc | Add-Member -NotePropertyName AttributionMatch -NotePropertyValue $clientAttribution.Entry -Force
                 Set-PrintAndLog -message "Auto-attributed '$($doc.title)' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan

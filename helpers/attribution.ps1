@@ -863,6 +863,179 @@ function New-SharePointClientAttributionMap {
     New-HuduClientAttributionMapFromEntries -Entries $entries -Companies $Companies -MinScore $MinScore -MinGap $MinGap
 }
 
+function New-SharePointClientDesignationMap {
+    param (
+        [Parameter(Mandatory)] $ManifestSet,
+        [Parameter(Mandatory)] $AttributionMap,
+        [array]$SelectedSites = @(),
+        [string[]]$FieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle"),
+        [double]$MinShare = 0.8,
+        [int]$MinItems = 1,
+        [int]$MinScore = 95,
+        [int]$MinGap = 3
+    )
+
+    $siteVotes = @{}
+    $listVotes = @{}
+    $siteNames = @{}
+    $listNames = @{}
+    $sourceMatchCache = @{}
+    $selectedSiteIds = [System.Collections.Generic.HashSet[string]]::new()
+
+    foreach ($site in @($SelectedSites)) {
+        if ($site.id) { [void]$selectedSiteIds.Add([string]$site.id) }
+    }
+
+    function Add-SharePointClientDesignationVote {
+        param (
+            [Parameter(Mandatory)] [hashtable]$Votes,
+            [Parameter(Mandatory)] [string]$Key,
+            [Parameter(Mandatory)] $Match
+        )
+
+        if (-not $Votes.ContainsKey($Key)) {
+            $Votes[$Key] = @{}
+        }
+
+        $companyId = [string]$Match.Entry.HuduCompanyId
+        if ([string]::IsNullOrWhiteSpace($companyId)) { return }
+
+        if (-not $Votes[$Key].ContainsKey($companyId)) {
+            $Votes[$Key][$companyId] = [PSCustomObject]@{
+                HuduCompanyId   = $Match.Entry.HuduCompanyId
+                HuduCompanyName = $Match.Entry.HuduCompanyName
+                Count           = 0
+                MatchAlias      = $Match.Alias
+            }
+        }
+
+        $Votes[$Key][$companyId].Count++
+    }
+
+    function Resolve-SharePointClientDesignationWinners {
+        param (
+            [Parameter(Mandatory)] [hashtable]$Votes,
+            [Parameter(Mandatory)] [hashtable]$Names,
+            [Parameter(Mandatory)] [string]$Scope
+        )
+
+        foreach ($key in @($Votes.Keys)) {
+            $voteRows = @($Votes[$key].Values | Sort-Object Count -Descending)
+            if ($voteRows.Count -lt 1) { continue }
+
+            $total = 0
+            foreach ($voteRow in $voteRows) { $total += [int]$voteRow.Count }
+            if ($total -lt 1) { continue }
+
+            $winner = $voteRows | Select-Object -First 1
+            $share = [double]$winner.Count / [double]$total
+            if ([int]$winner.Count -lt $MinItems -or $share -lt $MinShare) { continue }
+
+            [PSCustomObject]@{
+                Scope           = $Scope
+                Key             = $key
+                Name            = $Names[$key]
+                HuduCompanyId   = $winner.HuduCompanyId
+                HuduCompanyName = $winner.HuduCompanyName
+                Votes           = [int]$winner.Count
+                TotalVotes      = [int]$total
+                Share           = [Math]::Round($share, 4)
+                MatchAlias      = $winner.MatchAlias
+                TopCandidates   = @($voteRows | Select-Object -First 5)
+            }
+        }
+    }
+
+    foreach ($manifest in @($ManifestSet.Manifests)) {
+        foreach ($siteEntry in @($manifest.sites)) {
+            $siteId = [string]$siteEntry.metadata.id
+            if ($selectedSiteIds.Count -gt 0 -and -not $selectedSiteIds.Contains($siteId)) {
+                continue
+            }
+
+            $siteName = $siteEntry.metadata.displayName ?? $siteEntry.metadata.name
+            if ($siteId) { $siteNames[$siteId] = $siteName }
+
+            foreach ($listEntry in @($siteEntry.lists)) {
+                $listId = [string]$listEntry.metadata.id
+                if ([string]::IsNullOrWhiteSpace($listId)) { continue }
+
+                $listKey = "$siteId|$listId"
+                $listNames[$listKey] = $listEntry.metadata.displayName ?? $listEntry.metadata.name
+
+                foreach ($item in @($listEntry.items)) {
+                    $sourceText = Get-SharePointListItemPrimaryAttributionSourceText -Item $item -FieldNames $FieldNames
+                    if ([string]::IsNullOrWhiteSpace([string]$sourceText)) { continue }
+
+                    $sourceKey = ConvertTo-AttributionCompactKey $sourceText
+                    if ([string]::IsNullOrWhiteSpace($sourceKey)) { continue }
+
+                    if ($sourceMatchCache.ContainsKey($sourceKey)) {
+                        $match = $sourceMatchCache[$sourceKey]
+                    } else {
+                        $match = Resolve-HuduCompanyFromSharePointAttributionMap `
+                            -SourceText $sourceText `
+                            -AttributionMap $AttributionMap `
+                            -AutoOnly `
+                            -MinScore $MinScore `
+                            -MinGap $MinGap
+                        $sourceMatchCache[$sourceKey] = $match
+                    }
+
+                    if (-not $match -or -not $match.Entry.HuduCompanyId) { continue }
+
+                    if ($siteId) {
+                        Add-SharePointClientDesignationVote -Votes $siteVotes -Key $siteId -Match $match
+                    }
+                    Add-SharePointClientDesignationVote -Votes $listVotes -Key $listKey -Match $match
+                }
+            }
+        }
+    }
+
+    $sites = @(Resolve-SharePointClientDesignationWinners -Votes $siteVotes -Names $siteNames -Scope 'Site')
+    $lists = @(Resolve-SharePointClientDesignationWinners -Votes $listVotes -Names $listNames -Scope 'List')
+    $siteById = @{}
+    $listByKey = @{}
+
+    foreach ($site in $sites) { $siteById[[string]$site.Key] = $site }
+    foreach ($list in $lists) { $listByKey[[string]$list.Key] = $list }
+
+    [PSCustomObject]@{
+        Sites     = $sites
+        Lists     = $lists
+        SiteById  = $siteById
+        ListByKey = $listByKey
+    }
+}
+
+function Resolve-HuduCompanyFromClientDesignationMap {
+    param (
+        [string]$SiteId,
+        [string]$ListId,
+        $ClientDesignationMap,
+        [switch]$UseSiteDesignation,
+        [switch]$UseListDesignation
+    )
+
+    if (-not $ClientDesignationMap) { return $null }
+
+    if ($UseListDesignation -and $SiteId -and $ListId -and $ClientDesignationMap.ListByKey) {
+        $listKey = "$SiteId|$ListId"
+        if ($ClientDesignationMap.ListByKey.ContainsKey($listKey)) {
+            return $ClientDesignationMap.ListByKey[$listKey]
+        }
+    }
+
+    if ($UseSiteDesignation -and $SiteId -and $ClientDesignationMap.SiteById) {
+        if ($ClientDesignationMap.SiteById.ContainsKey($SiteId)) {
+            return $ClientDesignationMap.SiteById[$SiteId]
+        }
+    }
+
+    return $null
+}
+
 function Resolve-HuduCompanyFromSharePointAttributionMap {
     param (
         [Parameter(Mandatory)]

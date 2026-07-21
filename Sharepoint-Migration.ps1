@@ -30,6 +30,7 @@ $AllCompanies = @()
 $SingleCompanyChoice=@{}
 $StubbedArticles=@()
 $ClientAttributionMap=@()
+$ClientDesignationMap=$null
 $SiteCompanyMap=@()
 $SharePointMigrationState=@{}
 

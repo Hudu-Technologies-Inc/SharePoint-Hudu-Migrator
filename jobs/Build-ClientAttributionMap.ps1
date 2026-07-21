@@ -1,10 +1,13 @@
 ##### Step 2C, Build client attribution map
 
+$ClientDesignationMap = $null
+
 if (-not $RunSummary.SetupInfo.ClientAttributionEnabled) {
     Set-PrintAndLog -message "Client attribution matching disabled." -Color DarkGray
     $ClientAttributionMap = @()
     $ClientAttributionLookup = $null
     $ClientAttributionResolver = @()
+    $ClientDesignationMap = $null
     return
 }
 
@@ -13,6 +16,7 @@ if ($null -eq $AllCompanies -or $AllCompanies.Count -eq 0) {
     $ClientAttributionMap = @()
     $ClientAttributionLookup = $null
     $ClientAttributionResolver = @()
+    $ClientDesignationMap = $null
     return
 }
 
@@ -48,8 +52,36 @@ if (
 ) {
     try {
         $ClientAttributionMap = @(Get-Content -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -Raw | ConvertFrom-Json)
+        if ($ClientAttributionMap.Count -lt 1) {
+            Set-PrintAndLog -message "Cached SharePoint client attribution map is empty; client auto-attribution will be disabled for this run." -Color Yellow
+            $ClientAttributionLookup = $null
+            $ClientAttributionResolver = @()
+            $ClientDesignationMap = $null
+            return
+        }
+
         $ClientAttributionLookup = New-SharePointClientAttributionLookup -AttributionMap $ClientAttributionMap
         $ClientAttributionResolver = $ClientAttributionLookup
+        if (
+            $null -ne $manifestSet -and
+            ($RunSummary.SetupInfo.ClientAttributionUseSiteDesignations -or $RunSummary.SetupInfo.ClientAttributionUseListDesignations)
+        ) {
+            $ClientDesignationMap = New-SharePointClientDesignationMap `
+                -ManifestSet $manifestSet `
+                -AttributionMap $ClientAttributionResolver `
+                -SelectedSites $userSelectedSites `
+                -FieldNames $RunSummary.SetupInfo.ClientAttributionFieldNames `
+                -MinShare $RunSummary.SetupInfo.ClientAttributionDesignationMinShare `
+                -MinItems $RunSummary.SetupInfo.ClientAttributionDesignationMinItems `
+                -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
+                -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
+            Set-PrintAndLog -message "Built client designation map from cached attribution map: $(@($ClientDesignationMap.Sites).Count) site designation(s), $(@($ClientDesignationMap.Lists).Count) list designation(s)." -Color Cyan
+            $ClientDesignationMap |
+                Select-Object Sites, Lists |
+                ConvertTo-Json -Depth 20 |
+                Out-File -FilePath $RunSummary.OutputJsonFiles.ClientDesignationMap -Encoding UTF8
+            Set-PrintAndLog -message "Wrote client designation map: $($RunSummary.OutputJsonFiles.ClientDesignationMap)" -Color DarkMagenta
+        }
         Set-PrintAndLog -message "Loaded cached SharePoint client attribution map: $($ClientAttributionMap.Count) item(s) from $($RunSummary.OutputJsonFiles.ClientAttributionMap)" -Color Cyan
         return
     } catch {
@@ -57,6 +89,7 @@ if (
         $ClientAttributionMap = @()
         $ClientAttributionLookup = $null
         $ClientAttributionResolver = @()
+        $ClientDesignationMap = $null
     }
 }
 
@@ -96,6 +129,7 @@ if ($clientAttributionEntries.Count -gt 0) {
         $ClientAttributionMap = @()
         $ClientAttributionLookup = $null
         $ClientAttributionResolver = @()
+        $ClientDesignationMap = $null
         return
     }
 
@@ -121,11 +155,34 @@ if ($ClientAttributionMap.Count -lt 1) {
     Set-PrintAndLog -message "No client attribution entries were found from $clientAttributionSource; client auto-attribution will be disabled for this run." -Color Yellow
     $ClientAttributionLookup = $null
     $ClientAttributionResolver = @()
+    $ClientDesignationMap = $null
     return
 }
 
 $ClientAttributionLookup = New-SharePointClientAttributionLookup -AttributionMap $ClientAttributionMap
 $ClientAttributionResolver = $ClientAttributionLookup
+
+if (
+    $null -ne $manifestSet -and
+    ($RunSummary.SetupInfo.ClientAttributionUseSiteDesignations -or $RunSummary.SetupInfo.ClientAttributionUseListDesignations)
+) {
+    $ClientDesignationMap = New-SharePointClientDesignationMap `
+        -ManifestSet $manifestSet `
+        -AttributionMap $ClientAttributionResolver `
+        -SelectedSites $userSelectedSites `
+        -FieldNames $RunSummary.SetupInfo.ClientAttributionFieldNames `
+        -MinShare $RunSummary.SetupInfo.ClientAttributionDesignationMinShare `
+        -MinItems $RunSummary.SetupInfo.ClientAttributionDesignationMinItems `
+        -MinScore $RunSummary.SetupInfo.ClientAttributionListItemMinScore `
+        -MinGap $RunSummary.SetupInfo.ClientAttributionListItemMinGap
+    Set-PrintAndLog -message "Built client designation map: $(@($ClientDesignationMap.Sites).Count) site designation(s), $(@($ClientDesignationMap.Lists).Count) list designation(s)." -Color Cyan
+
+    $ClientDesignationMap |
+        Select-Object Sites, Lists |
+        ConvertTo-Json -Depth 20 |
+        Out-File -FilePath $RunSummary.OutputJsonFiles.ClientDesignationMap -Encoding UTF8
+    Set-PrintAndLog -message "Wrote client designation map: $($RunSummary.OutputJsonFiles.ClientDesignationMap)" -Color DarkMagenta
+}
 
 $autoCount = @($ClientAttributionMap | Where-Object { $_.AutoMatched }).Count
 $reviewCount = @($ClientAttributionMap | Where-Object { -not $_.AutoMatched }).Count

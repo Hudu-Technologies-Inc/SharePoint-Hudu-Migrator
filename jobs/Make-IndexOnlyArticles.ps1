@@ -133,6 +133,18 @@ function Resolve-SharePointIndexClientAttribution {
     }
 }
 
+function Resolve-SharePointIndexClientDesignation {
+    param ([array]$Files)
+
+    $sampleFile = @($Files | Select-Object -First 1)[0]
+    if (-not $sampleFile) { return $null }
+
+    Resolve-HuduCompanyFromClientDesignationMap `
+        -SiteId $sampleFile.SiteId `
+        -ClientDesignationMap $ClientDesignationMap `
+        -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations
+}
+
 function Get-IndexOnlyCompanyId {
     param (
         [string]$RelativeFolderPath,
@@ -143,13 +155,22 @@ function Get-IndexOnlyCompanyId {
         0 { return $SingleCompanyChoice.id }
         1 { return $null }
         3 {
-            $clientAttribution = if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+            $clientDesignation = if ($RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
+                Resolve-SharePointIndexClientDesignation -Files $Files
+            } else {
+                $null
+            }
+
+            $clientAttribution = if (-not $clientDesignation -and $RunSummary.SetupInfo.PreferClientAttributionOverSiteCompany) {
                 Resolve-SharePointIndexClientAttribution -SourceText (Get-SharePointIndexAttributionSourceText -RelativeFolderPath $RelativeFolderPath -Files $Files)
             } else {
                 $null
             }
 
-            if ($clientAttribution) {
+            if ($clientDesignation) {
+                Set-PrintAndLog -message "Assigned index-only folder '$RelativeFolderPath' to per-site client designation '$($clientDesignation.HuduCompanyName)' ($($clientDesignation.Votes)/$($clientDesignation.TotalVotes) votes)." -Color Cyan
+                return $clientDesignation.HuduCompanyId
+            } elseif ($clientAttribution) {
                 Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
                 return $clientAttribution.Entry.HuduCompanyId
             } else {
@@ -170,9 +191,17 @@ function Get-IndexOnlyCompanyId {
             }
         }
         default {
-            $clientAttribution = Resolve-SharePointIndexClientAttribution -SourceText (Get-SharePointIndexAttributionSourceText -RelativeFolderPath $RelativeFolderPath -Files $Files)
+            $clientDesignation = Resolve-SharePointIndexClientDesignation -Files $Files
+            $clientAttribution = if (-not $clientDesignation) {
+                Resolve-SharePointIndexClientAttribution -SourceText (Get-SharePointIndexAttributionSourceText -RelativeFolderPath $RelativeFolderPath -Files $Files)
+            } else {
+                $null
+            }
 
-            if ($clientAttribution) {
+            if ($clientDesignation) {
+                Set-PrintAndLog -message "Assigned index-only folder '$RelativeFolderPath' to per-site client designation '$($clientDesignation.HuduCompanyName)' ($($clientDesignation.Votes)/$($clientDesignation.TotalVotes) votes)." -Color Cyan
+                return $clientDesignation.HuduCompanyId
+            } elseif ($clientAttribution) {
                 Set-PrintAndLog -message "Auto-attributed index-only folder '$RelativeFolderPath' to client list item '$($clientAttribution.Entry.RawTitle)' => Hudu company '$($clientAttribution.Entry.HuduCompanyName)' via '$($clientAttribution.Match.Alias)' ($($clientAttribution.Match.Confidence)%)." -Color Cyan
                 return $clientAttribution.Entry.HuduCompanyId
             }

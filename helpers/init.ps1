@@ -106,6 +106,7 @@ $RunSummary=@{
         SiteCompanyCreateMissing = [bool]($SharePointSiteCompanyCreateMissing ?? $true)
         SiteCompanyUseCachedMap = [bool]($SharePointSiteCompanyUseCachedMap ?? $true)
         SiteCompanyForceRebuildMap = [bool]($SharePointSiteCompanyForceRebuildMap ?? $false)
+        StructuredListJsonOnly = [bool]($SharePointStructuredListJsonOnly ?? $false)
         ClientAttributionListNames = @(
             if ($null -ne $SharePointClientAttributionListNames) {
                 @($SharePointClientAttributionListNames)

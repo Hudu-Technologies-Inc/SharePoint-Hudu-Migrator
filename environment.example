@@ -97,5 +97,7 @@ $huduapikey = ""
 #   "ISP Info",
 #   "Connectivity"
 # )
+# Stop after writing structured-list JSON bundles; skip file conversion and article upload.
+# $SharePointStructuredListJsonOnly = $true
 
 . .\Sharepoint-Migration.ps1

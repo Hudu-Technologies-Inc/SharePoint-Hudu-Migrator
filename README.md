@@ -197,6 +197,12 @@ To skip structured-list export and migrate files only, leave it unset or set it 
 $SharePointStructuredListJsonNames = @()
 ```
 
+To generate only the structured-list JSON bundles and stop before file conversion/article upload:
+
+```powershell
+$SharePointStructuredListJsonOnly = $true
+```
+
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
 Kick off this script directly by opening `pwsh7` session as `administrator`, and `dot-sourcing` the Sharepoint Migration Script
 

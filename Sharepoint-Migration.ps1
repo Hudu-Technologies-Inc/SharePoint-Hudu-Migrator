@@ -98,6 +98,14 @@ $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJs
 # 2.5 Export configured structured SharePoint lists for later asset import
 . .\jobs\Export-StructuredListJson.ps1
 
+if ($RunSummary.SetupInfo.StructuredListJsonOnly) {
+    $RunSummary.JobInfo.FinishedAt = Get-Date
+    $RunSummary.JobInfo.RunDuration = New-TimeSpan -Start $RunSummary.JobInfo.StartedAt -End $RunSummary.JobInfo.FinishedAt
+    Set-PrintAndLog -message "Structured list JSON only mode enabled; stopping before file conversion and article upload." -Color Green
+    $RunSummary | ConvertTo-Json -Depth 50 | Out-File -FilePath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
+    return
+}
+
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##
 #

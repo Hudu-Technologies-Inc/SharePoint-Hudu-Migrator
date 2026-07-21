@@ -140,6 +140,7 @@ if ($clientAttributionEntries.Count -gt 0) {
             -ManifestSet $manifestSet `
             -Companies $AllCompanies `
             -ListNames $RunSummary.SetupInfo.ClientAttributionListNames `
+            -FieldNames $RunSummary.SetupInfo.ClientAttributionFieldNames `
             -MinScore $RunSummary.SetupInfo.ClientAttributionMinScore `
             -MinGap $RunSummary.SetupInfo.ClientAttributionMinGap
     )

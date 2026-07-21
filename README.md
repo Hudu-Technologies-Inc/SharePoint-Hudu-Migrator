@@ -123,6 +123,7 @@ If your structured SharePoint lists use a client picker or lookup column, config
 ```powershell
 $SharePointClientAttributionFieldNames = @(
   "Select a Client",
+  "Client Name",
   "Client",
   "Customer",
   "Company",
@@ -364,4 +365,3 @@ A: It constructs an HTML table from your spreadsheet. Large spreadsheets are les
 [![Facebook](https://img.shields.io/badge/Facebook-HuduHQ-1877F2?logo=facebook)](https://www.facebook.com/HuduHQ/)
 [![Instagram](https://img.shields.io/badge/Instagram-@huduhq-E4405F?logo=instagram)](https://www.instagram.com/huduhq/)
 [![Feature Requests](https://img.shields.io/badge/Feedback-Feature_Requests-brightgreen?logo=github)](https://hudu.canny.io/)
-

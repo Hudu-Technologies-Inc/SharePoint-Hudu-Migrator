@@ -473,10 +473,17 @@ function Get-SharePointClientListItemSourceMatchCandidates {
 function Get-SharePointClientListEntries {
     param (
         [Parameter(Mandatory)] $ManifestSet,
-        [string[]]$ListNames = @('Client List')
+        [string[]]$ListNames = @('Client List'),
+        [string[]]$TitleFieldNames = @('Title', 'LinkTitle', 'Client Name', 'Client', 'Company', 'Name')
     )
 
     $normalizedListNames = @($ListNames | ForEach-Object { ConvertTo-AttributionNormalizedText $_ })
+    $normalizedTitleFieldNames = @(
+        $TitleFieldNames |
+            ForEach-Object { ConvertTo-AttributionNormalizedText $_ } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+    )
 
     foreach ($manifest in @($ManifestSet.Manifests)) {
         foreach ($siteEntry in @($manifest.sites)) {
@@ -487,7 +494,34 @@ function Get-SharePointClientListEntries {
                 }
 
                 foreach ($item in @($listEntry.items)) {
-                    $title = $item.fields.Title ?? $item.fields.LinkTitle ?? $item.webUrl ?? $item.id
+                    $title = $null
+                    if ($item.fields) {
+                        foreach ($property in @($item.fields.PSObject.Properties)) {
+                            if ($property.Name -like '@odata*') { continue }
+                            if ($null -eq $property.Value) { continue }
+
+                            $normalizedPropertyName = ConvertTo-AttributionNormalizedText $property.Name
+                            $decodedPropertyName = if (Get-Command ConvertFrom-SharePointInternalFieldName -ErrorAction SilentlyContinue) {
+                                ConvertFrom-SharePointInternalFieldName $property.Name
+                            } else {
+                                [regex]::Replace($property.Name, '_x(?<hex>[0-9a-fA-F]{4})_', {
+                                    param($Match)
+                                    [string][char][Convert]::ToInt32($Match.Groups['hex'].Value, 16)
+                                })
+                            }
+                            $normalizedDecodedPropertyName = ConvertTo-AttributionNormalizedText $decodedPropertyName
+
+                            if (
+                                $normalizedTitleFieldNames -contains $normalizedPropertyName -or
+                                $normalizedTitleFieldNames -contains $normalizedDecodedPropertyName
+                            ) {
+                                $title = $property.Value
+                                break
+                            }
+                        }
+                    }
+
+                    $title = $title ?? $item.fields.Title ?? $item.fields.LinkTitle ?? $item.webUrl ?? $item.id
                     if ([string]::IsNullOrWhiteSpace([string]$title)) { continue }
 
                     $parsed = ConvertFrom-SharePointClientTitle -Title $title
@@ -851,11 +885,12 @@ function New-SharePointClientAttributionMap {
         [Parameter(Mandatory)] $ManifestSet,
         [Parameter(Mandatory)] [array]$Companies,
         [string[]]$ListNames = @('Client List'),
+        [string[]]$FieldNames = @('Title', 'LinkTitle', 'Client Name', 'Client', 'Company', 'Name'),
         [int]$MinScore = 95,
         [int]$MinGap = 5
     )
 
-    $entries = @(Get-SharePointClientListEntries -ManifestSet $ManifestSet -ListNames $ListNames)
+    $entries = @(Get-SharePointClientListEntries -ManifestSet $ManifestSet -ListNames $ListNames -TitleFieldNames $FieldNames)
     if ($entries.Count -lt 1) {
         return @()
     }

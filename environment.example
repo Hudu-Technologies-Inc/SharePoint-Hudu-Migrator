@@ -60,7 +60,7 @@ $huduapikey = ""
 # $SharePointClientAttributionListNames = @("Client List")
 # Use this to elect which fields on other lists point at the client/company.
 # Internal names like Select_x0020_a_x0020_Client are decoded before matching.
-# $SharePointClientAttributionFieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle")
+# $SharePointClientAttributionFieldNames = @("Select a Client", "Client Name", "Client", "Customer", "Company", "LinkTitle")
 # $SharePointClientAttributionMinScore = 95
 # $SharePointClientAttributionMinGap = 5
 # $SharePointClientAttributionListItemMinScore = 95
@@ -77,7 +77,7 @@ $huduapikey = ""
 
 # Optional: export selected SharePoint lists as per-company JSON bundles
 # instead of trying to turn structured inventory records into articles.
-# Matches also work when SharePoint appends suffixes like "_[DEMO]".
+# Matches also work when SharePoint appends suffixes like "_[test]".
 # $SharePointStructuredListJsonNames = @(
 #   "Mapped Drives",
 #   "Mail Flow",

@@ -15,8 +15,8 @@ foreach ($doc in $StubbedArticles) {
     foreach ($att in $doc.AllAttachments) {
         $AttachIDX+=1
         $localPath      = $att
-        $exists = Test-Path $localPath
-        $fileSize       = if ($exists) { (Get-Item $localPath).Length } else { 0 }
+        $exists = Test-Path -LiteralPath $localPath
+        $fileSize       = if ($exists) { (Get-Item -LiteralPath $localPath).Length } else { 0 }
         $tooLarge       = [bool]$($exists -and $fileSize -ge 100MB)
         $isImage        = [bool]$($att -match '\.(jpg|jpeg|png)$')
 

@@ -7,6 +7,37 @@ function Get-SharePointSitePageImportSafeFileName {
     return (Get-SharePointSafePathName -Name $Name)
 }
 
+function Import-SharePointSitePageRendererFunctions {
+    if (Get-Command ConvertTo-SharePointSitePageHtml -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    $fetchJobPath = if (-not [string]::IsNullOrWhiteSpace([string]$PSScriptRoot)) {
+        Join-Path $PSScriptRoot "Get-SitePages.ps1"
+    } else {
+        $null
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$fetchJobPath) -or -not (Test-Path -LiteralPath $fetchJobPath -PathType Leaf)) {
+        $repoRoot = if (-not [string]::IsNullOrWhiteSpace([string]$workdir)) {
+            [string]$workdir
+        } else {
+            (Get-Location).Path
+        }
+        $fetchJobPath = Join-Path $repoRoot "jobs\Get-SitePages.ps1"
+    }
+    if (-not (Test-Path -LiteralPath $fetchJobPath -PathType Leaf)) {
+        return
+    }
+
+    $fetchJobScript = Get-Content -LiteralPath $fetchJobPath -Raw
+    $executionBoundary = $fetchJobScript.IndexOf('$sitePagesJsonDir')
+    if ($executionBoundary -le 0) {
+        return
+    }
+
+    Invoke-Expression ($fetchJobScript.Substring(0, $executionBoundary))
+}
+
 function Get-SharePointSitePageImportSelectedSiteIds {
     $ids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($site in @($userSelectedSites)) {
@@ -107,6 +138,163 @@ function Get-SharePointSitePageExternalImageSources {
     )
 }
 
+function Get-SharePointSitePageImportObjectValues {
+    param (
+        $Object,
+        [string[]]$PropertyNames
+    )
+
+    if ($null -eq $Object -or -not $Object.PSObject.Properties) { return @() }
+
+    foreach ($propertyName in $PropertyNames) {
+        $property = $Object.PSObject.Properties[$propertyName]
+        if (-not $property -or $null -eq $property.Value) { continue }
+
+        foreach ($value in @($property.Value)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+                [string]$value
+            }
+        }
+    }
+}
+
+function ConvertTo-SharePointSitePageImportWebPartHtml {
+    param ($WebPart)
+
+    if ($null -eq $WebPart) { return "" }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$WebPart.innerHtml)) {
+        return [string]$WebPart.innerHtml
+    }
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $title = $WebPart.data.title ?? $WebPart.data.description ?? $WebPart.webPartType
+    if (-not [string]::IsNullOrWhiteSpace([string]$title)) {
+        $parts.Add("<h2>$([System.Web.HttpUtility]::HtmlEncode([string]$title))</h2>")
+    }
+
+    $serverContent = $WebPart.data.serverProcessedContent
+    foreach ($propertyName in @("htmlStrings", "searchablePlainTexts")) {
+        foreach ($entry in @($serverContent.$propertyName)) {
+            foreach ($value in @(Get-SharePointSitePageImportObjectValues -Object $entry -PropertyNames @("value"))) {
+                if ($propertyName -eq "htmlStrings") {
+                    $parts.Add($value)
+                } else {
+                    $parts.Add("<p>$([System.Web.HttpUtility]::HtmlEncode([string]$value))</p>")
+                }
+            }
+        }
+    }
+
+    foreach ($entry in @($serverContent.links)) {
+        $url = $entry.value
+        if ([string]::IsNullOrWhiteSpace([string]$url)) { continue }
+        $safeUrl = [System.Web.HttpUtility]::HtmlAttributeEncode([string]$url)
+        $safeText = [System.Web.HttpUtility]::HtmlEncode([string]($entry.key ?? $url))
+        $parts.Add("<p><a href=""$safeUrl"" target=""_blank"">$safeText</a></p>")
+    }
+
+    foreach ($entry in @($serverContent.imageSources)) {
+        $url = $entry.value
+        if ([string]::IsNullOrWhiteSpace([string]$url)) { continue }
+        $safeUrl = [System.Web.HttpUtility]::HtmlAttributeEncode([string]$url)
+        $safeAlt = [System.Web.HttpUtility]::HtmlAttributeEncode([string]($entry.key ?? "SharePoint image"))
+        $parts.Add("<p><img src=""$safeUrl"" alt=""$safeAlt"" /></p>")
+    }
+
+    return ($parts -join "`n")
+}
+
+function Get-SharePointSitePageImportWebPartsFromObject {
+    param ($Object)
+
+    if ($null -eq $Object) { return @() }
+
+    $found = [System.Collections.Generic.List[object]]::new()
+    if ($Object -is [System.Collections.IEnumerable] -and -not ($Object -is [string]) -and -not $Object.PSObject.Properties) {
+        foreach ($item in @($Object)) {
+            foreach ($webPart in @(Get-SharePointSitePageImportWebPartsFromObject -Object $item)) {
+                $found.Add($webPart)
+            }
+        }
+        return @($found)
+    }
+
+    if (-not $Object.PSObject.Properties) { return @() }
+
+    if ($Object.PSObject.Properties["innerHtml"] -or $Object.PSObject.Properties["webPartType"] -or $Object.PSObject.Properties["data"]) {
+        $found.Add($Object)
+    }
+
+    foreach ($property in @($Object.PSObject.Properties)) {
+        if ($property.Name -like "@odata*") { continue }
+        if ($null -eq $property.Value) { continue }
+        if ($property.Value -is [string] -or $property.Value -is [ValueType]) { continue }
+
+        foreach ($webPart in @(Get-SharePointSitePageImportWebPartsFromObject -Object $property.Value)) {
+            $found.Add($webPart)
+        }
+    }
+
+    return @($found)
+}
+
+function ConvertTo-SharePointSitePageImportHtml {
+    param ($PageExport)
+
+    $pageObject = $PageExport.Page ?? $PageExport
+    $webPartProperty = if ($PageExport.PSObject.Properties['WebParts']) {
+        $PageExport.PSObject.Properties['WebParts'].Value
+    } else {
+        $null
+    }
+    $webParts = if ($null -ne $webPartProperty -and @($webPartProperty).Count -gt 0) {
+        @($webPartProperty)
+    } elseif ($PageExport.Page -and $PageExport.Page.canvasLayout) {
+        @(Get-SharePointSitePageImportWebPartsFromObject -Object $PageExport.Page.canvasLayout)
+    } else {
+        @()
+    }
+
+    if (@($webParts).Count -lt 1) { return $null }
+
+    $title = [string]($PageExport.Title ?? $pageObject.title ?? $pageObject.name ?? "Untitled SharePoint page")
+    $siteName = [string]($PageExport.SiteName ?? $PageExport.SiteId ?? "SharePoint Site")
+    $safeTitle = [System.Web.HttpUtility]::HtmlEncode($title)
+    $safeSite = [System.Web.HttpUtility]::HtmlEncode($siteName)
+    $safeUrl = [System.Web.HttpUtility]::HtmlAttributeEncode([string]($PageExport.WebUrl ?? $pageObject.webUrl))
+    $safeModified = [System.Web.HttpUtility]::HtmlEncode([string]($PageExport.LastModifiedDateTime ?? $pageObject.lastModifiedDateTime))
+
+    $bodyParts = [System.Collections.Generic.List[string]]::new()
+    foreach ($webPart in @($webParts)) {
+        $partHtml = ConvertTo-SharePointSitePageImportWebPartHtml -WebPart $webPart
+        if (-not [string]::IsNullOrWhiteSpace([string]$partHtml)) {
+            $bodyParts.Add($partHtml)
+        }
+    }
+
+    if ($bodyParts.Count -lt 1) { return $null }
+
+@"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>$safeTitle</title>
+</head>
+<body>
+  <h1>$safeTitle</h1>
+  <div class="meta">
+    <div><strong>SharePoint site:</strong> $safeSite</div>
+    <div><strong>Last modified:</strong> $safeModified</div>
+    <div><strong>Source:</strong> <a href="$safeUrl" target="_blank">$safeUrl</a></div>
+  </div>
+  $($bodyParts -join "`n")
+</body>
+</html>
+"@
+}
+
 function Convert-SharePointSitePageExportToConvertedDoc {
     param (
         [Parameter(Mandatory)]
@@ -116,8 +304,42 @@ function Convert-SharePointSitePageExportToConvertedDoc {
         [string]$AssetRoot
     )
 
+    Import-SharePointSitePageRendererFunctions
+
     $htmlPath = [string]$PageExport.HtmlPath
-    $html = [string]$PageExport.Html
+    $html = $null
+    if (Get-Command ConvertTo-SharePointSitePageHtml -ErrorAction SilentlyContinue) {
+        $pageObject = $PageExport.Page ?? $PageExport
+        $webPartProperty = if ($PageExport.PSObject.Properties['WebParts']) {
+            $PageExport.PSObject.Properties['WebParts'].Value
+        } else {
+            $null
+        }
+        $webParts = if ($null -ne $webPartProperty -and @($webPartProperty).Count -gt 0) {
+            @($webPartProperty)
+        } elseif ($PageExport.Page -and $PageExport.Page.canvasLayout -and (Get-Command Get-SharePointSitePageWebPartsFromCanvasObject -ErrorAction SilentlyContinue)) {
+            @(Get-SharePointSitePageWebPartsFromCanvasObject -Object $PageExport.Page.canvasLayout)
+        } else {
+            @()
+        }
+
+        if (@($webParts).Count -gt 0) {
+            $siteObject = [PSCustomObject]@{
+                displayName = $PageExport.SiteName
+                name        = $PageExport.SiteName
+                id          = $PageExport.SiteId
+            }
+            $html = ConvertTo-SharePointSitePageHtml -Site $siteObject -Page $pageObject -WebParts $webParts
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($html)) {
+        $html = ConvertTo-SharePointSitePageImportHtml -PageExport $PageExport
+    }
+
+    if ([string]::IsNullOrWhiteSpace($html)) {
+        $html = [string]$PageExport.Html
+    }
     if ([string]::IsNullOrWhiteSpace($html) -and (Test-Path -LiteralPath $htmlPath -PathType Leaf)) {
         $html = Get-Content -LiteralPath $htmlPath -Raw
     }

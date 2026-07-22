@@ -124,7 +124,7 @@ function ConvertTo-SharePointSitePageWebPartHtml {
     if ($null -eq $WebPart) { return "" }
 
     $odataType = [string]$WebPart.'@odata.type'
-    if ($odataType -like "*textWebPart" -and -not [string]::IsNullOrWhiteSpace([string]$WebPart.innerHtml)) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$WebPart.innerHtml)) {
         return [string]$WebPart.innerHtml
     }
 

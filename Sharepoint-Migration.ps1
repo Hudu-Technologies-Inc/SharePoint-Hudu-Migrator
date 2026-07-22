@@ -86,6 +86,11 @@ Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source f
 Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
 $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
 
+if ($RunSummary.SetupInfo.FetchSitePages) {
+    Set-IncrementedState -newState "Fetch SharePoint Site Pages"
+    . .\jobs\Get-SitePages.ps1
+}
+
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1
 

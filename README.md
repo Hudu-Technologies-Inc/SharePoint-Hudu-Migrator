@@ -205,6 +205,22 @@ To generate only the structured-list JSON bundles and stop before file conversio
 $SharePointStructuredListJsonOnly = $true
 ```
 
+#### Site Page Fetching
+
+For an initial SharePoint site page export, enable the fetch job:
+
+```powershell
+$SharePointFetchSitePages = $true
+```
+
+The main runner will fetch pages after source site selection. You can also run the job manually from an authenticated session with `$userSelectedSites` populated:
+
+```powershell
+. .\jobs\Get-SitePages.ps1
+```
+
+This writes page HTML snapshots to `logs\site-pages-html`, raw page/webpart JSON to `logs\site-pages-json`, and a review CSV to `logs\site-pages-index.csv`. It uses Microsoft Graph site pages and webparts endpoints and is intended as a first-pass capture before wiring site pages into Hudu article creation.
+
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
 Kick off this script directly by opening `pwsh7` session as `administrator`, and `dot-sourcing` the Sharepoint Migration Script
 

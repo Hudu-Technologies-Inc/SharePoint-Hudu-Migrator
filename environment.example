@@ -31,6 +31,10 @@ $huduapikey = ""
 # them. Article names keep the .pdf extension for post-run is_upload updates.
 # $SharePointPdfUploadAsFile = $true
 
+# Optional: fetch modern SharePoint site pages as HTML/JSON snapshots after
+# source site selection. This does not create Hudu articles yet.
+# $SharePointFetchSitePages = $true
+
 # Optional: exclude SharePoint sites from source selection by site displayName
 # or name. Matching is case/punctuation-insensitive.
 # $SharePointSiteSkipNames = @(

@@ -1,11 +1,22 @@
 
 function Relink-DocumentUploads {
     param (
-        [Parameter(Mandatory)] [array]$Docs
+        [AllowEmptyCollection()] [array]$Docs = @()
         
     )
 
+    $Docs = @($Docs | Where-Object { $null -ne $_ })
+    if ($Docs.Count -lt 1) {
+        Set-PrintAndLog -message "No stubbed articles queued for relinking." -Color DarkGray
+        return
+    }
+
     foreach ($doc in $Docs) {
+        if (-not $doc -or -not $doc.stub -or -not $doc.stub.id) {
+            Set-PrintAndLog -message "Skipping relink for item without a Hudu stub: $($doc.title ?? $doc.LocalPath ?? $doc.Name ?? 'unknown')" -Color DarkGray
+            continue
+        }
+
         $baseName = [System.IO.Path]::GetFileNameWithoutExtension($doc.FilePath)
         $htmlPath = $doc.NewPath
 
@@ -99,4 +110,4 @@ function Relink-DocumentUploads {
         Set-PrintAndLog "Relinked HTML: $htmlPath" -Color Green
     }
 }
-Relink-DocumentUploads -docs $stubbedArticles
+Relink-DocumentUploads -docs @($stubbedArticles)

@@ -60,6 +60,9 @@ $RunSummary=@{
         SiteCompanyReview = "$(join-path $logsFolder -ChildPath "site-company-review.csv")"
         StructuredListJsonDir = "$(join-path $logsFolder -ChildPath "structured-list-json")"
         StructuredListJsonIndex = "$(join-path $logsFolder -ChildPath "structured-list-json-index.csv")"
+        SitePagesJsonDir = "$(join-path $logsFolder -ChildPath "site-pages-json")"
+        SitePagesHtmlDir = "$(join-path $logsFolder -ChildPath "site-pages-html")"
+        SitePagesIndex = "$(join-path $logsFolder -ChildPath "site-pages-index.csv")"
         MigrationState = "$(join-path $logsFolder -ChildPath "sharepoint-migration-state.jsonl")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
     }
@@ -79,6 +82,7 @@ $RunSummary=@{
         ResumeIgnoreETag    = [bool]($SharePointResumeIgnoreETag ?? $false)
         SkipExistingArticles = [bool]($SharePointSkipExistingArticles ?? $true)
         PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
+        FetchSitePages      = [bool]($SharePointFetchSitePages ?? $false)
         SiteSkipNames        = @(
             if ($null -ne $SharePointSiteSkipNames) {
                 @($SharePointSiteSkipNames)

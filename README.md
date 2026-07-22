@@ -2,7 +2,9 @@
 Easy Migration from SharePoint to Hudu
 
 ## Note on Intended Purpose
-If you are working from a single mapped SharePoint drive rather than multiple SharePoint sites, you may prefer the direct [Files-Hudu-Migration](https://github.com/Hudu-Technologies-Inc/Files-Hudu-Migration) tool. However, for environments with multiple SharePoint sites, this project is the recommended solution. It preserves inter-site links and treats each SharePoint site as a distinct entity, whereas Files-Hudu-Migration processes each file or folder as an individual entity.
+If you are working from a single mapped SharePoint drive rather than multiple SharePoint sites or you only care about the hosted files being converted to articles, you may prefer the direct [Files-Hudu-Migration](https://github.com/Hudu-Technologies-Inc/Files-Hudu-Migration) tool. 
+
+However, for environments with multiple SharePoint sites, drives, lists, pages, or detailed folder structure, this project is the recommended solution. It preserves inter-site links and treats each SharePoint site as a distinct entity, whereas Files-Hudu-Migration processes each file or folder as an individual entity.
 
 ### Prerequisites
 
@@ -199,6 +201,12 @@ To skip structured-list export and migrate files only, leave it unset or set it 
 $SharePointStructuredListJsonNames = @()
 ```
 
+Otherwise, include the names of the lists that correspond to assets you'd like to create in Hudu:
+
+```powershell
+$SharePointStructuredListJsonNames = @("company vehicles","workstations","external users")
+```
+
 To generate only the structured-list JSON bundles and stop before file conversion/article upload:
 
 ```powershell
@@ -246,18 +254,25 @@ $HuduInternalizeExternalArticleImagesDryRun = $true
 . .\jobs\Internalize-ExternalArticleImages.ps1
 ```
 
-Review `logs\internalized-external-images\internalized-external-images.csv`, then run with dry-run disabled when ready:
+To check whether external images appear downloadable while staying in dry-run, enable the probe option. This sends a lightweight `HEAD` request first and falls back to a one-byte ranged `GET` when needed:
 
 ```powershell
-$HuduInternalizeExternalArticleImagesDryRun = $false
+$HuduInternalizeExternalArticleImagesDryRun = $true
+$HuduInternalizeExternalArticleImagesProbeDownloads = $true
 . .\jobs\Internalize-ExternalArticleImages.ps1
 ```
 
-The report also classifies unexpected local image sources. Expected Hudu image/file paths include relative or absolute `public_photo`, `public_photos`, `photo`, `photos`, `upload`, `uploads`, `file`, and `files` URLs, with or without a leading slash. To remove unexpected local/absolute image tags while internalizing external images, enable:
+Review `logs\internalized-external-images\internalized-external-images.csv`, then run with dry-run disabled when ready. For an external-image-only rewrite, keep unexpected local/relative rewrites and scrubbing disabled:
 
 ```powershell
-$HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $true
+$HuduInternalizeExternalArticleImagesDryRun = $false
+$HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $true
+$HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $false
+$HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $false
+. .\jobs\Internalize-ExternalArticleImages.ps1
 ```
+
+The report also classifies unexpected local image sources. Expected Hudu image/file paths include relative or absolute `public_photo`, `public_photos`, `photo`, `photos`, `upload`, `uploads`, `file`, and `files` URLs, with or without a leading slash.
 
 To disable reuse of existing Hudu uploads/public photos before downloading external images, set:
 
@@ -271,11 +286,10 @@ Unexpected local/relative image sources are reported but not rewritten by defaul
 $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $true
 ```
 
-To check whether external images appear downloadable while staying in dry-run, enable the probe option. This sends a lightweight `HEAD` request first and falls back to a one-byte ranged `GET` when needed:
+To remove unexpected local/absolute image tags while internalizing external images, enable:
 
 ```powershell
-$HuduInternalizeExternalArticleImagesDryRun = $true
-$HuduInternalizeExternalArticleImagesProbeDownloads = $true
+$HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $true
 ```
 
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.

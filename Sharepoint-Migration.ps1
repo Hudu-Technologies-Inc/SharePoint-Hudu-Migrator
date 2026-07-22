@@ -14,25 +14,9 @@ $clientId = $clientId ?? $null
 $scopes =  "Sites.Read.All Files.Read.All User.Read offline_access"
 
 # 1.3 Init and vars
-$userSelectedSites = [System.Collections.ArrayList]@()
-$AllDiscoveredFiles = [System.Collections.ArrayList]@()
-$AllDiscoveredFolders = [System.Collections.ArrayList]@()
-$AllProcessedDiscoveredFiles = [System.Collections.ArrayList]@()
-$AllProcessedDiscoveredFolders = [System.Collections.ArrayList]@()
-$IndexOnlyFiles = [System.Collections.ArrayList]@()
-$IndexOnlyArticles = [System.Collections.ArrayList]@()
-$Attribution_Options=[System.Collections.ArrayList]@()
-$AllNewLinks = [System.Collections.ArrayList]@()        
-$discoveredFiles = [System.Collections.ArrayList]@()
-$ImageMap = @{}
-$allSites = @()
-$AllCompanies = @()
-$SingleCompanyChoice=@{}
-$StubbedArticles=@()
-$ClientAttributionMap=@()
-$ClientDesignationMap=$null
-$SiteCompanyMap=@()
-$SharePointMigrationState=@{}
+$userSelectedSites = [System.Collections.ArrayList]@(); $AllDiscoveredFiles = [System.Collections.ArrayList]@(); $AllDiscoveredFolders = [System.Collections.ArrayList]@(); $AllProcessedDiscoveredFiles = [System.Collections.ArrayList]@(); $AllProcessedDiscoveredFolders = [System.Collections.ArrayList]@(); $IndexOnlyFiles = [System.Collections.ArrayList]@();
+$IndexOnlyArticles = [System.Collections.ArrayList]@(); $Attribution_Options=[System.Collections.ArrayList]@(); $AllNewLinks = [System.Collections.ArrayList]@(); $discoveredFiles = [System.Collections.ArrayList]@();
+$ImageMap = @{}; $allSites = @(); $AllCompanies = @(); $SingleCompanyChoice=@{}; $StubbedArticles=@(); $ClientAttributionMap=@(); $ClientDesignationMap=$null; $SiteCompanyMap=@(); $SharePointMigrationState=@{};
 
 foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort-Object Name)) {
     Write-Host "Importing: $($file.Name)" -ForegroundColor DarkBlue
@@ -44,9 +28,17 @@ foreach ($module in @("MSAL.PS")) {
 Set-Content -Path $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
 Set-PrintAndLog -message "Imported Hudu Module and authenticated / checked version... $(Set-HuduModuleInitialized -huduBaseurl $HuduBaseURL -huduAPIkey $HuduApiKey)" -Color DarkBlue
-$registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
-$clientId = $clientId ?? $registration.clientId
-$tenantId = $tenantId ?? $registration.tenantId
+if ($null -eq $clientId -or $null -eq $tenantId) {
+    Set-PrintAndLog -message "No clientId or tenantId provided. Will attempt to create app registration for Sharepoint access." -Color Yellow
+    $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
+} else {
+    $registration = @{}
+}
+$clientId = $clientId ?? $registration.clientId; $tenantId = $tenantId ?? $registration.tenantId;
+if ($null -eq $clientId -or $null -eq $tenantId) {
+    Set-PrintAndLog -message "No clientId or tenantId available. Cannot continue." -Color Red
+    throw "No clientId or tenantId available. Cannot continue."
+}
 
 # 1.4 Authenticate to Sharepoint
 Start-Process "https://microsoft.com/devicelogin"
@@ -69,9 +61,7 @@ $workItems = @(ConvertFrom-SharePointManifestSet -ManifestSet $manifestSet)
 
 $SharePointMigrationState = if ($RunSummary.SetupInfo.ResumeFromState) {
     Import-SharePointMigrationState -Path $RunSummary.OutputJsonFiles.MigrationState
-} else {
-    @{}
-}
+} else {@{}}
 Set-PrintAndLog -message "Loaded SharePoint migration state: $($SharePointMigrationState.Count) completed/skipped/failed state entr$(if ($SharePointMigrationState.Count -eq 1) { 'y' } else { 'ies' }) from $($RunSummary.OutputJsonFiles.MigrationState)" -Color Cyan
 
 
@@ -298,11 +288,11 @@ foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
 Set-IncrementedState -newState "Complete"
 Read-Host "Press Enter to Finish and Print Summary (available in )"
 $SummaryJson = $RunSummary | ConvertTo-Json -Depth 20
+$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
 $SummaryJson -split "`n" | ForEach-Object {
     $_ -replace '[\{\[]', '⤵' `
        -replace '[\}\]]', '' `
        -replace '",', '"' `
        -replace '^', '  '
 }
-$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
 Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta

@@ -34,6 +34,9 @@ $huduapikey = ""
 # Optional: fetch modern SharePoint site pages as HTML/JSON snapshots after
 # source site selection. This does not create Hudu articles yet.
 # $SharePointFetchSitePages = $true
+# Optional: import fetched site page snapshots as Hudu articles using the
+# existing attribution/stub/populate/upload/relink pipeline.
+# $SharePointImportSitePagesAsArticles = $true
 
 # Optional: exclude SharePoint sites from source selection by site displayName
 # or name. Matching is case/punctuation-insensitive.

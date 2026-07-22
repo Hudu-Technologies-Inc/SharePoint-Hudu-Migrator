@@ -111,6 +111,11 @@ if ($RunSummary.SetupInfo.StructuredListJsonOnly) {
     return
 }
 
+if ($RunSummary.SetupInfo.ImportSitePagesAsArticles) {
+    Set-IncrementedState -newState "Import SharePoint Site Pages as Hudu Articles"
+    . .\jobs\Import-SitePagesAsArticles.ps1
+}
+
 ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
 ##
 #

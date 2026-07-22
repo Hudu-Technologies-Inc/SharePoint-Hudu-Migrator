@@ -176,9 +176,16 @@ foreach ($doc in $docsToStub) {
 
     # Resolve relative folder path
     $relativeFolderPath = $null
-    if ($doc.LocalPath -and $BaseSitePath) {
-        $relativeFolderPath = Split-Path -Path $doc.LocalPath -Parent
-        $relativeFolderPath = $relativeFolderPath.Substring($BaseSitePath.Length).TrimStart('\')
+    if (-not [string]::IsNullOrWhiteSpace([string]$doc.RelativeFolderPath)) {
+        $relativeFolderPath = [string]$doc.RelativeFolderPath
+    } elseif ($doc.LocalPath -and $BaseSitePath) {
+        $docDirectory = Split-Path -Path $doc.LocalPath -Parent
+        $resolvedDocDirectory = [System.IO.Path]::GetFullPath($docDirectory)
+        $resolvedBaseSitePath = [System.IO.Path]::GetFullPath($BaseSitePath).TrimEnd('\')
+
+        if ($resolvedDocDirectory.StartsWith($resolvedBaseSitePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $relativeFolderPath = $resolvedDocDirectory.Substring($resolvedBaseSitePath.Length).TrimStart('\')
+        }
     }
 
     # Build key and resolve/create folder via cache

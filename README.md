@@ -221,6 +221,14 @@ The main runner will fetch pages after source site selection. You can also run t
 
 This writes page HTML snapshots to `logs\site-pages-html`, raw page/webpart JSON to `logs\site-pages-json`, and a review CSV to `logs\site-pages-index.csv`. It uses Microsoft Graph site pages and webparts endpoints and is intended as a first-pass capture before wiring site pages into Hudu article creation.
 
+To import fetched site page snapshots as Hudu articles, enable:
+
+```powershell
+$SharePointImportSitePagesAsArticles = $true
+```
+
+The importer treats site pages as pre-converted HTML documents and reuses the existing attribution, skip-existing, stub, populate, upload, and relink stages. Base64-embedded images are extracted to `logs\site-pages-assets` and queued as Hudu uploads; external image URLs are left in the HTML and recorded for review.
+
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
 Kick off this script directly by opening `pwsh7` session as `administrator`, and `dot-sourcing` the Sharepoint Migration Script
 

@@ -83,6 +83,7 @@ $RunSummary=@{
         SkipExistingArticles = [bool]($SharePointSkipExistingArticles ?? $true)
         PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
         FetchSitePages      = [bool]($SharePointFetchSitePages ?? $false)
+        ImportSitePagesAsArticles = [bool]($SharePointImportSitePagesAsArticles ?? $false)
         SiteSkipNames        = @(
             if ($null -ne $SharePointSiteSkipNames) {
                 @($SharePointSiteSkipNames)

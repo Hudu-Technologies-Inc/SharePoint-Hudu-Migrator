@@ -470,6 +470,7 @@ foreach ($jsonFile in $pageJsonFiles) {
     }
     if (
         $RunSummary.SetupInfo.ResumeFromState -and
+        -not $RunSummary.SetupInfo.ForceReimportSitePages -and
         (Test-SharePointItemAlreadyMigrated -Item $resumeProbe -State $SharePointMigrationState -IgnoreETag:$RunSummary.SetupInfo.ResumeIgnoreETag)
     ) {
         Set-PrintAndLog -message "Skipping already completed SharePoint site page: $($pageExport.Title)" -Color DarkGray

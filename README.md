@@ -229,6 +229,14 @@ $SharePointImportSitePagesAsArticles = $true
 
 The importer treats site pages as pre-converted HTML documents and reuses the existing attribution, skip-existing, stub, populate, upload, and relink stages. Base64-embedded images are extracted to `logs\site-pages-assets` and queued as Hudu uploads; external image URLs are left in the HTML and recorded for review.
 
+If you need to rerun page imports after improving page rendering, ignore only the site-page resume state with:
+
+```powershell
+$SharePointForceReimportSitePages = $true
+```
+
+This is separate from `$SharePointSkipExistingArticles`, which controls the duplicate Hudu article title/org check.
+
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
 Kick off this script directly by opening `pwsh7` session as `administrator`, and `dot-sourcing` the Sharepoint Migration Script
 

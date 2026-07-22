@@ -81,9 +81,10 @@ $RunSummary=@{
         ResumeFromState     = [bool]($SharePointResumeFromState ?? $true)
         ResumeIgnoreETag    = [bool]($SharePointResumeIgnoreETag ?? $false)
         SkipExistingArticles = [bool]($SharePointSkipExistingArticles ?? $true)
-        PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $false)
-        FetchSitePages      = [bool]($SharePointFetchSitePages ?? $false)
-        ImportSitePagesAsArticles = [bool]($SharePointImportSitePagesAsArticles ?? $false)
+        PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $true)
+        FetchSitePages      = [bool]($SharePointFetchSitePages ?? $true)
+        ImportSitePagesAsArticles = [bool]($SharePointImportSitePagesAsArticles ?? $true)
+        ForceReimportSitePages = [bool]($SharePointForceReimportSitePages ?? $false)
         SiteSkipNames        = @(
             if ($null -ne $SharePointSiteSkipNames) {
                 @($SharePointSiteSkipNames)

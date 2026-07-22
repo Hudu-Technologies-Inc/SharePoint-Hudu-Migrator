@@ -37,6 +37,9 @@ $huduapikey = ""
 # Optional: import fetched site page snapshots as Hudu articles using the
 # existing attribution/stub/populate/upload/relink pipeline.
 # $SharePointImportSitePagesAsArticles = $true
+# Optional: ignore site-page entries in sharepoint-migration-state.jsonl when
+# reimporting fetched site page snapshots. Useful after improving page rendering.
+# $SharePointForceReimportSitePages = $true
 
 # Optional: exclude SharePoint sites from source selection by site displayName
 # or name. Matching is case/punctuation-insensitive.

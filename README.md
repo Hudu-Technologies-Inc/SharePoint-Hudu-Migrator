@@ -237,6 +237,47 @@ $SharePointForceReimportSitePages = $true
 
 This is separate from `$SharePointSkipExistingArticles`, which controls the duplicate Hudu article title/org check.
 
+#### External Article Images
+
+After importing pages, you can scan Hudu articles for absolute external `<img src="...">` values, upload those images to Hudu, and rewrite the image sources. Before downloading a remote image, the job can check existing Hudu uploads and public photos by exact filename and reuse a matching Hudu URL. The job is dry-run by default:
+
+```powershell
+$HuduInternalizeExternalArticleImagesDryRun = $true
+. .\jobs\Internalize-ExternalArticleImages.ps1
+```
+
+Review `logs\internalized-external-images\internalized-external-images.csv`, then run with dry-run disabled when ready:
+
+```powershell
+$HuduInternalizeExternalArticleImagesDryRun = $false
+. .\jobs\Internalize-ExternalArticleImages.ps1
+```
+
+The report also classifies unexpected local image sources. Expected Hudu image/file paths include relative or absolute `public_photo`, `public_photos`, `photo`, `photos`, `upload`, `uploads`, `file`, and `files` URLs, with or without a leading slash. To remove unexpected local/absolute image tags while internalizing external images, enable:
+
+```powershell
+$HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $true
+```
+
+To disable reuse of existing Hudu uploads/public photos before downloading external images, set:
+
+```powershell
+$HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $false
+```
+
+Unexpected local/relative image sources are reported but not rewritten by default, even if a filename matches an existing Hudu upload/public photo. To allow those existing-Hudu rewrites in a separate cleanup pass, set:
+
+```powershell
+$HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $true
+```
+
+To check whether external images appear downloadable while staying in dry-run, enable the probe option. This sends a lightweight `HEAD` request first and falls back to a one-byte ranged `GET` when needed:
+
+```powershell
+$HuduInternalizeExternalArticleImagesDryRun = $true
+$HuduInternalizeExternalArticleImagesProbeDownloads = $true
+```
+
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
 Kick off this script directly by opening `pwsh7` session as `administrator`, and `dot-sourcing` the Sharepoint Migration Script
 

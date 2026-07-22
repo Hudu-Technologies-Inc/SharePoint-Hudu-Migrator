@@ -41,6 +41,19 @@ $huduapikey = ""
 # reimporting fetched site page snapshots. Useful after improving page rendering.
 # $SharePointForceReimportSitePages = $true
 
+# Optional maintenance job: find absolute external <img src="..."> refs in Hudu
+# articles, upload those images into Hudu, and rewrite article HTML. Dry run is
+# intentionally the default.
+# $HuduInternalizeExternalArticleImagesDryRun = $true
+# $HuduInternalizeExternalArticleImagesUsePublicPhotos = $true
+# $HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $true
+# $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $false
+# $HuduInternalizeExternalArticleImagesProbeDownloads = $false
+# $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $false
+# $HuduInternalizeExternalArticleImagesMaxArticles = 25
+# $HuduInternalizeExternalArticleImagesArticleIds = @()
+# $HuduInternalizeExternalArticleImagesCompanyIds = @()
+
 # Optional: exclude SharePoint sites from source selection by site displayName
 # or name. Matching is case/punctuation-insensitive.
 # $SharePointSiteSkipNames = @(

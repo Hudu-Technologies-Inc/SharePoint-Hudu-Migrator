@@ -264,6 +264,11 @@ if ($RunSummary.SetupInfo.LowDiskMode) {
         -SofficePath $sofficePath
 }
 
+Set-IncrementedState -newState "Complete Internalization of External Article Images"
+$HuduInternalizeExternalArticleImagesDryRun = $HuduInternalizeExternalArticleImagesDryRun ?? $false; $HuduInternalizeExternalArticleImagesUsePublicPhotos = $HuduInternalizeExternalArticleImagesUsePublicPhotos ?? $true; $HuduInternalizeExternalArticleImagesProbeDownloads = $HuduInternalizeExternalArticleImagesProbeDownloads ?? $true; $HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $HuduInternalizeExternalArticleImagesPreferExistingHuduImages ?? $true;
+$HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting ?? $false; $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources ?? $false;
+. .\jobs\Internalize-ExternalArticleImages.ps1
+
 ##### Step 6, clean up vars, folders, appregistration and generate summary
 ##
 # All set, clean up, and spit the facts, as the kids say.

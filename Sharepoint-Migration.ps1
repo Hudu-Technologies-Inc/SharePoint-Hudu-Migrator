@@ -149,6 +149,9 @@ function Invoke-SharePointMigrationFileBatch {
     Set-IncrementedState -newState "Download From Selection - $BatchName"
     . .\jobs\Get-SourceData.ps1
 
+    Set-IncrementedState -newState "Skip Existing Articles Before Conversion - $BatchName"
+    . .\jobs\Skip-ExistingArticlesEarly.ps1
+
     if ($AllDiscoveredFiles.Count -gt 0) {
         [void]$AllProcessedDiscoveredFiles.AddRange($AllDiscoveredFiles)
     }

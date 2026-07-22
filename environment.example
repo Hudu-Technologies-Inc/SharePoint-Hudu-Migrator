@@ -22,8 +22,9 @@ $huduapikey = ""
 # $SharePointResumeFromState = $true
 # $SharePointResumeIgnoreETag = $false
 
-# Optional: before stubbing an article, skip if an article with the same exact
-# name already exists in the target Hudu company/global KB.
+# Optional: skip if an article with the same exact name already exists in the
+# target Hudu company/global KB. When the company can be resolved automatically,
+# this happens before conversion/upload work.
 # $SharePointSkipExistingArticles = $true
 
 # Optional: upload PDFs as attached files on stub articles instead of converting

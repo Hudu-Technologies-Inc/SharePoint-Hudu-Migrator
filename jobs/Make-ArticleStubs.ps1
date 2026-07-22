@@ -60,8 +60,10 @@ function Resolve-SharePointDocClientDesignation {
 
     Resolve-HuduCompanyFromClientDesignationMap `
         -SiteId $Doc.SiteId `
+        -ListId $Doc.sharepointListId `
         -ClientDesignationMap $ClientDesignationMap `
-        -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations
+        -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations `
+        -UseListDesignation:$RunSummary.SetupInfo.ClientAttributionUseListDesignations
 }
 
 $docIDX=0

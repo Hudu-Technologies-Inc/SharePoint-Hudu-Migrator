@@ -59,6 +59,8 @@ To avoid creating duplicate Hudu articles, the script can skip articles when the
 $SharePointSkipExistingArticles = $true
 ```
 
+When the destination company can be resolved without prompting, this check runs immediately after SharePoint discovery so matching files are removed before conversion, indexing, stubbing, image upload, or article population. Skipped files are still written to the resume state, so reinvoking the migration does not reprocess them.
+
 #### Site Selection Filters
 
 You can hide known-unwanted SharePoint sites from the selection prompts and from "all sites" runs. Matching is case/punctuation-insensitive and checks both SharePoint `displayName` and `name`.

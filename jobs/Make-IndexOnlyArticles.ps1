@@ -141,8 +141,10 @@ function Resolve-SharePointIndexClientDesignation {
 
     Resolve-HuduCompanyFromClientDesignationMap `
         -SiteId $sampleFile.SiteId `
+        -ListId $sampleFile.sharepointListId `
         -ClientDesignationMap $ClientDesignationMap `
-        -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations
+        -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations `
+        -UseListDesignation:$RunSummary.SetupInfo.ClientAttributionUseListDesignations
 }
 
 function Get-IndexOnlyCompanyId {

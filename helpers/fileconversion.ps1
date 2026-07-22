@@ -45,7 +45,7 @@ function Convert-WithLibreOffice {
                 -ArgumentList "--headless", "--convert-to", $intermediateExt, "--outdir", "`"$outputDir`"", "`"$inputFile`"" `
                 -Wait -NoNewWindow
 
-            if (-not (Test-Path $intermediatePath)) {
+            if (-not (Test-Path -LiteralPath $intermediatePath)) {
                 throw "$intermediateExt conversion failed for $inputFile"
             }
         } else {
@@ -61,7 +61,7 @@ function Convert-WithLibreOffice {
 
         $htmlPath = Join-Path $outputDir "$baseName.xhtml"
 
-        if (-not (Test-Path $htmlPath)) {
+        if (-not (Test-Path -LiteralPath $htmlPath)) {
             throw "XHTML conversion failed for $intermediatePath"
         }
 
@@ -86,12 +86,12 @@ function Get-EmbeddedFilesFromHtml {
         [int32]$resolution=5
     )
 
-    if (-not (Test-Path $htmlPath)) {
+    if (-not (Test-Path -LiteralPath $htmlPath)) {
         Write-Warning "HTML file not found: $htmlPath"
         return @{}
     }
 
-    $htmlContent = Get-Content $htmlPath -Raw
+    $htmlContent = Get-Content -LiteralPath $htmlPath -Raw
     $baseDir = Split-Path -Path $htmlPath
     $baseName = [System.IO.Path]::GetFileNameWithoutExtension($htmlPath)
     $trimmedBaseName = if ($baseName.Length -gt $resolution) {
@@ -148,7 +148,7 @@ function Get-EmbeddedFilesFromHtml {
         ".odt", ".ods", ".odp", ".xhtml", ".xml", ".html", ".json", ".htm"
     )
 
-    $allFiles = Get-ChildItem -Path $baseDir -File
+    $allFiles = Get-ChildItem -LiteralPath $baseDir -File
     foreach ($file in $allFiles) {
         $fullFilePath = [IO.Path]::GetFullPath($file.FullName).ToLowerInvariant()
         $htmlPathNormalized = [IO.Path]::GetFullPath($htmlPath).ToLowerInvariant()
@@ -170,6 +170,30 @@ function Get-EmbeddedFilesFromHtml {
         
     $results.UpdatedHTMLContent = $htmlContent
     return $results
+}
+
+function Get-SharePointAttachmentList {
+    param (
+        [Parameter(Mandatory)] $File,
+        [array]$AdditionalFiles = @()
+    )
+
+    $attachments = [System.Collections.ArrayList]@()
+    foreach ($attachment in @($AdditionalFiles)) {
+        if ($attachment) {
+            [void]$attachments.Add($attachment)
+        }
+    }
+
+    if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
+        if ($File.FileTooLarge) {
+            Set-PrintAndLog -message "Source file is 100 MB or larger; not attaching to Hudu and linking back to SharePoint instead: $($File.LocalPath)" -Color Yellow
+        } elseif ($File.LocalPath) {
+            [void]$attachments.Add($File.LocalPath)
+        }
+    }
+
+    return @($attachments | Sort-Object -Unique)
 }
 
 # TODO: DRY this up later.
@@ -203,18 +227,78 @@ function ConvertDownloadedFiles {
 
             $outputDir = Split-Path $file.LocalPath
             $htmlPath = $null
-            # images as sharepoint file download
-            if ($EmbeddableImageExtensions -contains $extension){
-                Set-PrintAndLog -message "Image extension: $extension — generating user-friendly HTML." -Color Yellow
-                $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-gen-image.html"
-                Get-GeneratedHTMLForImageFile -sourceFile $file -outputFile $file.newpath
-                $file.RawContent = Get-Content $file.NewPath -Raw
+            $indexOnlyExtensions = @($RunSummary.SetupInfo.IndexOnlyExtensions) | ForEach-Object {
+                $configuredExtension = ([string]$_).Trim().ToLowerInvariant()
+                if ($configuredExtension -and -not $configuredExtension.StartsWith(".")) {
+                    ".$configuredExtension"
+                } else {
+                    $configuredExtension
+                }
+            }
+            if ($indexOnlyExtensions -contains $extension) {
+                Set-PrintAndLog -message "Index-only extension: $extension - skipping conversion and queuing for folder index article." -Color Yellow
+                $file | Add-Member -NotePropertyName IndexOnly -NotePropertyValue $true -Force
+                $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                if ($null -ne $IndexOnlyFiles) {
+                    [void]$IndexOnlyFiles.Add($file)
+                }
+                continue
+            }
+            if ($file.FileTooLarge) {
+                Set-PrintAndLog -message "Source file is 100 MB or larger - generating link-back article without conversion." -Color Yellow
+                $sourceUrl = $file.webViewUrl
+                if (-not $sourceUrl) {
+                    $sourceUrl = @($file.OriginalLinks)[0]
+                }
+                $safeSourceUrl = [System.Web.HttpUtility]::HtmlAttributeEncode($sourceUrl)
+                $link = if ($sourceUrl) {
+                    "<br><a href='$safeSourceUrl' target='_blank'>View in SharePoint (100 MB or larger)</a>"
+                } else {
+                    ""
+                }
+                $note = "</p>File is 100 MB or larger and was not downloaded or attached to Hudu.</p>"
+                $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-link-only.html"
+                Get-GeneratedAttachmentLinkLargeDocs -sourceFile $file -outputFile $file.NewPath -link $link -note $note
+                $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw
                 $file.ReplacedContent = $file.RawContent
                 $file.SuccessConverted = $false
                 $file.UsingGeneratedHTML = $true
                 $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
                 $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
-                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {@($file.LocalPath)} else {[System.Collections.ArrayList]@()}) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $convertedbatch.Add($file) | Out-Null
+                continue
+            }
+            if ($extension -eq ".pdf" -and $RunSummary.SetupInfo.PdfUploadAsFile) {
+                Set-PrintAndLog -message "PDF upload-as-file mode enabled - stubbing article and uploading original PDF without conversion." -Color Yellow
+                $file.title = [System.IO.Path]::GetFileName($file.LocalPath)
+                $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-pdf-upload.html"
+                Get-GeneratedUploadAsFileHTML -sourceFile $file -outputFile $file.NewPath
+                $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw
+                $file.ReplacedContent = $file.RawContent
+                $file.SuccessConverted = $false
+                $file.UsingGeneratedHTML = $true
+                $file | Add-Member -NotePropertyName UploadAsFile -NotePropertyValue $true -Force
+                $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue @($file.LocalPath) -Force
+                $convertedbatch.Add($file) | Out-Null
+                continue
+            }
+            # images as sharepoint file download
+            if ($EmbeddableImageExtensions -contains $extension){
+                Set-PrintAndLog -message "Image extension: $extension — generating user-friendly HTML." -Color Yellow
+                $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-gen-image.html"
+                Get-GeneratedHTMLForImageFile -sourceFile $file -outputFile $file.newpath
+                $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw
+                $file.ReplacedContent = $file.RawContent
+                $file.SuccessConverted = $false
+                $file.UsingGeneratedHTML = $true
+                $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue (Get-SharePointAttachmentList -File $file) -Force
                 $convertedbatch.Add($file) | Out-Null
                 continue
             }
@@ -223,13 +307,13 @@ function ConvertDownloadedFiles {
                 Set-PrintAndLog -message "extension: $extension is disallowed for converting— skipping conversion." -Color Yellow
                 $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-generated.html"
                 Get-DisallowedExtensionGeneratedHTML -sourceFile $file -outputFile $file.NewPath
-                $file.RawContent = Get-Content $file.NewPath -Raw
+                $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw
                 $file.ReplacedContent = $file.RawContent
                 $file.SuccessConverted = $false
                 $file.UsingGeneratedHTML = $true
                 $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
                 $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
-                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {@($file.LocalPath)} else {[System.Collections.ArrayList]@()}) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue (Get-SharePointAttachmentList -File $file) -Force
                 $convertedbatch.Add($file) | Out-Null
                 continue    
             }
@@ -248,9 +332,9 @@ function ConvertDownloadedFiles {
                 }
             }
 
-            if ($htmlPath -and (Test-Path $htmlPath)) {
+            if ($htmlPath -and (Test-Path -LiteralPath $htmlPath)) {
                 $file.NewPath = $htmlPath
-                $file.RawContent = Get-Content $file.NewPath -Raw
+                $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw
 
                 $file.SuccessConverted = $true
                 Set-PrintAndLog -message "Converted: $($file.LocalPath) => $htmlPath" -Color Green
@@ -264,12 +348,7 @@ function ConvertDownloadedFiles {
                 }
                 $file | Add-Member -NotePropertyName ExternalFiles -NotePropertyValue $foundfiles.ExternalFiles -Force
                 $file | Add-Member -NotePropertyName Base64ImagesWritten  -NotePropertyValue $foundfiles.Base64ImagesWritten  -Force
-                $allfiles=@() 
-                if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
-                    $allFiles = @(@($file.ExternalFiles) + @($file.Base64ImagesWritten) + @($file.LocalPath)) | Sort-Object -Unique
-                } else {
-                    $allFiles = @(@($file.ExternalFiles) + @($file.Base64ImagesWritten)) | Sort-Object -Unique
-                }
+                $allFiles = Get-SharePointAttachmentList -File $file -AdditionalFiles @(@($file.ExternalFiles) + @($file.Base64ImagesWritten))
                 $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue $allFiles -Force
 
             }
@@ -298,7 +377,7 @@ function Convert-PdfToSlimHtml {
         [string]$PdfToHtmlPath = "C:\tools\poppler\bin\pdftohtml.exe"
     )
 
-    if (-not (Test-Path $InputPdfPath)) {
+    if (-not (Test-Path -LiteralPath $InputPdfPath)) {
         throw "PDF not found: $InputPdfPath"
     }
 
@@ -336,11 +415,11 @@ function Convert-PdfXmlToHtml {
         [string]$OutputHtmlPath = "$XmlPath.html"
     )
 
-    if (-not (Test-Path $XmlPath)) {
+    if (-not (Test-Path -LiteralPath $XmlPath)) {
         throw "Input XML not found: $XmlPath"
     }
 
-    [xml]$doc = Get-Content $XmlPath
+    [xml]$doc = Get-Content -LiteralPath $XmlPath
     $html = @()
     $html += '<!DOCTYPE html>'
     $html += '<html><head><meta charset="UTF-8">'
@@ -358,7 +437,7 @@ function Convert-PdfXmlToHtml {
     }
 
     $html += '</body></html>'
-    Set-Content -Path $OutputHtmlPath -Value ($html -join "`n") -Encoding UTF8
+    Set-Content -LiteralPath $OutputHtmlPath -Value ($html -join "`n") -Encoding UTF8
     Set-PrintAndLog -message  "Generated slim HTML: $OutputHtmlPath" -Color Green
 }
 function Convert-PdfToHtml {
@@ -401,7 +480,7 @@ function Convert-PdfToHtml {
     Start-Process -FilePath $pdftohtmlPath `
         -ArgumentList $popplerArgs -Wait -NoNewWindow
 
-    return (Test-Path $outputHtml) ? $outputHtml : $null
+    return (Test-Path -LiteralPath $outputHtml) ? $outputHtml : $null
 }
 
 

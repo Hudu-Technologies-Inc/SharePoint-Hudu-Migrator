@@ -24,7 +24,7 @@ $tmpfolder=$(join-path "$workdir" "tmp")
 $ErroredItemsFolder=$(join-path "$logsFolder" "errored")
 Write-Host "Hudu Max Docsize: $HUDU_MAX_DOCSIZE"
 
-$EmbeddableImageExtensions = @(
+$EmbeddableImageExtensions = $EmbeddableImageExtensions ?? @(
     ".jpg", ".jpeg",  # JPEG
     ".png",           # Portable Network Graphics
     ".gif",           # GIF (including animated)
@@ -53,6 +53,17 @@ $RunSummary=@{
         SelectedFiles    =   "$(join-path $logsFolder -ChildPath "files.json")"
         SelectedFolders  =   "$(join-path $logsFolder -ChildPath "folders.json")"
         ConvertedFiles   =   "$(join-path $logsFolder -ChildPath "converted.json")"
+        ClientAttributionMap = "$(join-path $logsFolder -ChildPath "client-attribution-map.json")"
+        ClientDesignationMap = "$(join-path $logsFolder -ChildPath "client-designation-map.json")"
+        ClientAttributionReview = "$(join-path $logsFolder -ChildPath "client-attribution-review.csv")"
+        SiteCompanyMap = "$(join-path $logsFolder -ChildPath "site-company-map.json")"
+        SiteCompanyReview = "$(join-path $logsFolder -ChildPath "site-company-review.csv")"
+        StructuredListJsonDir = "$(join-path $logsFolder -ChildPath "structured-list-json")"
+        StructuredListJsonIndex = "$(join-path $logsFolder -ChildPath "structured-list-json-index.csv")"
+        SitePagesJsonDir = "$(join-path $logsFolder -ChildPath "site-pages-json")"
+        SitePagesHtmlDir = "$(join-path $logsFolder -ChildPath "site-pages-html")"
+        SitePagesIndex = "$(join-path $logsFolder -ChildPath "site-pages-index.csv")"
+        MigrationState = "$(join-path $logsFolder -ChildPath "sharepoint-migration-state.jsonl")"
         SummaryPath      =   "$(join-path $logsFolder -ChildPath "job-summary.json")"
     }
     SetupInfo=@{
@@ -66,6 +77,63 @@ $RunSummary=@{
         FinishedAt          = $null
         RunDuration         = $null
         PreviewLength       = 2500
+        LowDiskMode         = [bool]($SharePointLowDiskMode ?? $false)
+        ResumeFromState     = [bool]($SharePointResumeFromState ?? $true)
+        ResumeIgnoreETag    = [bool]($SharePointResumeIgnoreETag ?? $false)
+        SkipExistingArticles = [bool]($SharePointSkipExistingArticles ?? $true)
+        PdfUploadAsFile     = [bool]($SharePointPdfUploadAsFile ?? $true)
+        FetchSitePages      = [bool]($SharePointFetchSitePages ?? $true)
+        ImportSitePagesAsArticles = [bool]($SharePointImportSitePagesAsArticles ?? $true)
+        ForceReimportSitePages = [bool]($SharePointForceReimportSitePages ?? $false)
+        SiteSkipNames        = @(
+            if ($null -ne $SharePointSiteSkipNames) {
+                @($SharePointSiteSkipNames)
+            } else {
+                @()
+            }
+        )
+        ClientAttributionEnabled = [bool]($SharePointClientAttributionEnabled ?? $true)
+        ClientAttributionAutoApply = [bool]($SharePointClientAttributionAutoApply ?? $true)
+        PreferClientAttributionOverSiteCompany = [bool]($SharePointPreferClientAttributionOverSiteCompany ?? $true)
+        ClientAttributionUseSiteDesignations = [bool]($SharePointClientAttributionUseSiteDesignations ?? $true)
+        ClientAttributionUseListDesignations = [bool]($SharePointClientAttributionUseListDesignations ?? $true)
+        ClientAttributionDesignationMinShare = [double]($SharePointClientAttributionDesignationMinShare ?? 0.8)
+        ClientAttributionDesignationMinItems = [int]($SharePointClientAttributionDesignationMinItems ?? 1)
+        ClientAttributionMinScore = [int]($SharePointClientAttributionMinScore ?? 95)
+        ClientAttributionMinGap = [int]($SharePointClientAttributionMinGap ?? 5)
+        ClientAttributionClientsPath = $($SharePointClientAttributionClientsPath ?? (Join-Path $workdir "clients.json"))
+        ClientAttributionUseCachedMap = [bool]($SharePointClientAttributionUseCachedMap ?? $true)
+        ClientAttributionForceRebuildMap = [bool]($SharePointClientAttributionForceRebuildMap ?? $false)
+        ClientAttributionListItemMinScore = [int]($SharePointClientAttributionListItemMinScore ?? 95)
+        ClientAttributionListItemMinGap = [int]($SharePointClientAttributionListItemMinGap ?? 3)
+        ClientAttributionCreateMissing = [bool]($SharePointClientAttributionCreateMissing ?? $false)
+        SiteCompanyMinScore = [int]($SharePointSiteCompanyMinScore ?? 95)
+        SiteCompanyMinGap = [int]($SharePointSiteCompanyMinGap ?? 5)
+        SiteCompanyCreateMissing = [bool]($SharePointSiteCompanyCreateMissing ?? $true)
+        SiteCompanyUseCachedMap = [bool]($SharePointSiteCompanyUseCachedMap ?? $true)
+        SiteCompanyForceRebuildMap = [bool]($SharePointSiteCompanyForceRebuildMap ?? $false)
+        StructuredListJsonOnly = [bool]($SharePointStructuredListJsonOnly ?? $false)
+        ClientAttributionListNames = @(
+            if ($null -ne $SharePointClientAttributionListNames) {
+                @($SharePointClientAttributionListNames)
+            } else {
+                "Client List"
+            }
+        )
+        ClientAttributionFieldNames = @(
+            if ($null -ne $SharePointClientAttributionFieldNames) {
+                @($SharePointClientAttributionFieldNames)
+            } else {
+                @("Select a Client", "Client", "Customer", "Company", "LinkTitle")
+            }
+        )
+        StructuredListJsonNames = @(
+            if ($null -ne $SharePointStructuredListJsonNames) {
+                @($SharePointStructuredListJsonNames)
+            } else {
+                @()
+            }
+        )
         DisallowedForConvert = [System.Collections.ArrayList]@(
             ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a",
             ".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj",
@@ -74,6 +142,13 @@ $RunSummary=@{
             ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".webm", ".flv",
             ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend",
             ".ds_store", ".thumbs", ".lnk", ".heic"
+        )
+        IndexOnlyExtensions = [System.Collections.ArrayList]@(
+            if ($null -ne $SharePointIndexOnlyExtensions) {
+                @($SharePointIndexOnlyExtensions)
+            } else {
+                ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend", ".heic"
+            }
         )
         LinkSourceArticles  = $true
         SourceFilesAsAttachments = $true

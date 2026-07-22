@@ -15,8 +15,10 @@ function Set-AzureAppRegistration {
     $SubscriptionId = $null
 
     # install/import az module, set initial AZ context
-    foreach ($module in @('Az')) {if (Get-Module -ListAvailable -Name $module) 
-        { Set-PrintAndLog -message "Importing module, $module... (please be patient. AZ takes a while.)" -Color DarkGreen; Import-Module $module } else {Set-PrintAndLog -message "Installing and importing module $module...... Please be patient, it can take a while." -Color DarkGreen; Install-Module $module -Force -AllowClobber; Import-Module $module }
+    foreach ($module in @('Az')) {
+        if (Get-Module -ListAvailable -Name $module) { 
+            Set-PrintAndLog -message "Importing module, $module... (please be patient. AZ takes a while.)" -Color DarkGreen; Import-Module $module } else {Set-PrintAndLog -message "Installing and importing module $module...... Please be patient, it can take a long while." -Color DarkGreen; Install-Module $module -Force -AllowClobber; Import-Module $module 
+        }
     }
     if (-not (Get-AzContext)) {
         try {

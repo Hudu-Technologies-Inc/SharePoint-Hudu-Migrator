@@ -1,6 +1,110 @@
 ##### Step 2A Select Source Options
-$allSitesResponse = Invoke-RestMethod -Headers $SharePointHeaders -Uri "https://graph.microsoft.com/v1.0/sites?search=*" -Method Get
-$allSites = $allSitesResponse.value
+function Get-SharePointSourceOptionSiteKey {
+    param ($Site)
+
+    foreach ($value in @($Site.id, $Site.webUrl, $Site.name, $Site.displayName)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            return [string]$value
+        }
+    }
+
+    return [guid]::NewGuid().ToString()
+}
+
+function Get-SharePointSourceOptionSiteMatchValues {
+    param ($Site)
+
+    foreach ($value in @($Site.displayName, $Site.name)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            [string]$value
+        }
+    }
+}
+
+function Test-SharePointSourceOptionSiteSkipped {
+    param (
+        $Site,
+        [string[]]$NormalizedSkipNames
+    )
+
+    if ($NormalizedSkipNames.Count -eq 0) { return $false }
+
+    foreach ($siteValue in @(Get-SharePointSourceOptionSiteMatchValues -Site $Site)) {
+        $normalizedSiteValue = ConvertTo-AttributionNormalizedText $siteValue
+        if ($normalizedSiteValue -and $NormalizedSkipNames -contains $normalizedSiteValue) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+$graphSites = @(Invoke-SharePointGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites?search=*")
+$manifestSites = @()
+
+if ($null -ne $manifestSet -and $null -ne $manifestSet.Manifests) {
+    $manifestSites = @(
+        foreach ($manifest in @($manifestSet.Manifests)) {
+            foreach ($siteEntry in @($manifest.sites)) {
+                if ($siteEntry.metadata) {
+                    $siteEntry.metadata
+                }
+            }
+        }
+    )
+}
+
+if ($manifestSites.Count -gt $graphSites.Count) {
+    $allSites = @($manifestSites)
+    Set-PrintAndLog -message "Graph site search returned $($graphSites.Count) site(s); manifest contains $($manifestSites.Count). Using manifest site list for source selection." -Color Yellow
+} else {
+    $siteByKey = [ordered]@{}
+    foreach ($site in @($graphSites + $manifestSites)) {
+        $siteKey = Get-SharePointSourceOptionSiteKey -Site $site
+        if (-not $siteByKey.Contains($siteKey)) {
+            $siteByKey[$siteKey] = $site
+        }
+    }
+
+    $allSites = @($siteByKey.Values)
+    Set-PrintAndLog -message "Loaded $($allSites.Count) SharePoint site(s) for source selection." -Color Cyan
+}
+
+$siteSkipNames = @($RunSummary.SetupInfo.SiteSkipNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+if ($siteSkipNames.Count -gt 0) {
+    $normalizedSiteSkipNames = @(
+        $siteSkipNames |
+            ForEach-Object { ConvertTo-AttributionNormalizedText $_ } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+    )
+
+    $sitesBeforeSkip = @($allSites)
+    $skippedSites = @(
+        $sitesBeforeSkip |
+            Where-Object { Test-SharePointSourceOptionSiteSkipped -Site $_ -NormalizedSkipNames $normalizedSiteSkipNames }
+    )
+    $allSites = @(
+        $sitesBeforeSkip |
+            Where-Object { -not (Test-SharePointSourceOptionSiteSkipped -Site $_ -NormalizedSkipNames $normalizedSiteSkipNames) }
+    )
+
+    if ($skippedSites.Count -gt 0) {
+        $skippedSiteNames = @(
+            $skippedSites |
+                ForEach-Object { $_.displayName ?? $_.name ?? $_.webUrl ?? $_.id }
+        )
+        Set-PrintAndLog -message "Skipped $($skippedSites.Count) SharePoint site(s) by configured skip list: $($skippedSiteNames -join ', ')" -Color Yellow
+    } else {
+        Set-PrintAndLog -message "Configured SharePoint site skip list did not match any loaded sites." -Color DarkGray
+    }
+}
+
+if ($null -eq $allSites -or $allSites.Count -lt 1) {
+    Write-Error "No SharePoint sites are available after applying the configured site skip list."
+    return
+}
+
 foreach ($site in $allSites) {
     $site | Add-Member -NotePropertyName FetchedBy     -NotePropertyValue $localhost_name -Force
     $site | Add-Member -NotePropertyName CompanyId     -NotePropertyValue $null -Force
@@ -25,11 +129,14 @@ if ($RunSummary.JobInfo.MigrationSource.Identifier -eq 0) {
 } elseif ($RunSummary.JobInfo.MigrationSource.Identifier -eq 1) {
     while ($true) {
     $selectedSite = Select-ObjectFromList -objects $allSites -message "From which site?" -allowNull $true
-        if ($null -eq $selection) { break }
+        if ($null -eq $selectedSite) { break }
         [void]$userSelectedSites.Add($selectedSite)
     }
 } else {
-    if ($null -eq $allSites -or $allSites.count -lt 1) { continue } 
+    if ($null -eq $allSites -or $allSites.count -lt 1) {
+        Write-Error "No SharePoint sites were loaded. Please check Graph permissions and manifest generation."
+        return
+    }
 
     [void]$userSelectedSites.AddRange($allSites)
     }

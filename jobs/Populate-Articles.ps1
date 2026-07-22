@@ -33,7 +33,7 @@ foreach ($doc in $StubbedArticles) {
             $htmlPath = Join-Path $tmpfolder -ChildPath ("LargeDoc_{0}.html" -f (Get-SafeFilename ([IO.Path]::GetFileNameWithoutExtension($($doc.title)))))
             $doc.NewPath = $htmlPath
             Get-GeneratedAttachmentLinkLargeDocs -sourceFile $doc -outputFile $htmlPath -link $link -note $note
-            $doc.replacedContent = Get-Content $doc.NewPath -Raw
+            $doc.replacedContent = Get-Content -LiteralPath $doc.NewPath -Raw
             if ($null -ne $uploadable) {$doc.UploadedFiles.add($uploadable)}
             $doc | Add-Member -NotePropertyName OverrideContent -NotePropertyValue $doc.ReplacedContent -Force
             $FinalContents =  $doc.replacedContent
@@ -44,7 +44,7 @@ foreach ($doc in $StubbedArticles) {
             $htmlPath = Join-Path $tmpfolder -ChildPath ("RemoteDoc_{0}.html" -f (Get-SafeFilename ([IO.Path]::GetFileNameWithoutExtension($($doc.title)))))
             $doc.NewPath = $htmlPath
             Get-GeneratedAttachmentLinkLargeDocs -sourceFile $doc -outputFile $htmlPath -link $link -note $note
-            $doc.replacedContent = Get-Content $doc.NewPath -Raw
+            $doc.replacedContent = Get-Content -LiteralPath $doc.NewPath -Raw
             $doc | Add-Member -NotePropertyName OverrideContent -NotePropertyValue $doc.ReplacedContent -Force
             $FinalContents =  $doc.replacedContent
         }

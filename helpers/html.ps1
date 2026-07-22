@@ -20,10 +20,28 @@ function Get-AttachmentLink {
                 [PSCustomObject]$sourceFile
     )
 
-return $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments) {
+return $(if ($RunSummary.SetupInfo.SourceFilesAsAttachments -or $sourceFile.UploadAsFile) {
+if ($sourceFile.FileTooLarge) {
+    $sourceUrl = $sourceFile.webViewUrl
+    if (-not $sourceUrl) {
+        $sourceUrl = @($sourceFile.OriginalLinks)[0]
+    }
+    if ($sourceUrl) {
+        $safeUrl = [System.Web.HttpUtility]::HtmlAttributeEncode($sourceUrl)
+        $safeTitle = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
 @"
-<br><a href='$([System.IO.Path]::GetFileName($sourceFile.LocalPath))'>Attached Original File: $($sourceFile.title)</a>
+<br><a href='$safeUrl' target='_blank'>Original file is 100 MB or larger; view in SharePoint: $safeTitle</a>
 "@
+    } else {
+        ""
+    }
+} else {
+    $safeFilename = [System.Web.HttpUtility]::HtmlAttributeEncode([System.IO.Path]::GetFileName($sourceFile.LocalPath))
+    $safeTitle = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
+@"
+<br><a href='$safeFilename'>Attached Original File: $safeTitle</a>
+"@
+}
 } else {
     ""
 })
@@ -111,6 +129,43 @@ function Get-GeneratedAttachmentLinkLargeDocs {
     $link
     
   </p>
+</body>
+</html>
+"@
+
+    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    return $outputFile
+}
+
+function Get-GeneratedUploadAsFileHTML {
+    param (
+        [Parameter(Mandatory)]
+        [PSCustomObject]$sourceFile,
+
+        [Parameter(Mandatory)]
+        [string]$outputFile
+    )
+
+    $filename = [System.IO.Path]::GetFileName($sourceFile.LocalPath)
+    $safeFilename = [System.Web.HttpUtility]::HtmlEncode($filename)
+    $title = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
+    $site = [System.Web.HttpUtility]::HtmlEncode($sourceFile.SiteName)
+
+    $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+</head>
+<body>
+  <h1>$title</h1>
+  <p>
+    <strong>Site:</strong> $site<br />
+    <strong>File:</strong> $safeFilename
+  </p>
+  $SHAREPOINT_URL_DELIMITER
+  <p>$HUDU_LOCALATTACHMENT_DELIMITER</p>
 </body>
 </html>
 "@

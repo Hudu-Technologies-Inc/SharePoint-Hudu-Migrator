@@ -141,35 +141,121 @@ function Set-PrintAndLog {
     }
     Add-Content -Path $LogFile -Value $logline
 }
-function Select-ObjectFromList($objects,$message,$allowNull = $false) {
-    $validated=$false
-    while ($validated -eq $false){
-        if ($allowNull -eq $true) {
-            Write-Host "0: None/Custom"
-        }
-        for ($i = 0; $i -lt $objects.Count; $i++) {
-            $object = $objects[$i]
-            if ($null -ne $object.OptionMessage) {
-                Write-Host "$($i+1): $($object.OptionMessage)"
-            } elseif ($null -ne $object.name) {
-                Write-Host "$($i+1): $($object.name)"
-            } else {
-                Write-Host "$($i+1): $($object)"
+function Write-InspectObject {
+    param (
+        [object]$object,
+        [int]$Depth = 32,
+        [int]$MaxLines = 16
+    )
+
+    $stringifiedObject = $null
+
+    if ($null -eq $object) {
+        return "Unreadable Object (null input)"
+    }
+    # Try JSON
+    $stringifiedObject = try {
+        $json = $object | ConvertTo-Json -Depth $Depth -ErrorAction Stop
+        "# Type: $($object.GetType().FullName)`n$json"
+    } catch { $null }
+
+    # Try Format-Table
+    if (-not $stringifiedObject) {
+        $stringifiedObject = try {
+            $object | Format-Table -Force | Out-String
+        } catch { $null }
+    }
+
+    # Try Format-List
+    if (-not $stringifiedObject) {
+        $stringifiedObject = try {
+            $object | Format-List -Force | Out-String
+        } catch { $null }
+    }
+
+    # Fallback to manual property dump
+    if (-not $stringifiedObject) {
+        $stringifiedObject = try {
+            $props = $object | Get-Member -MemberType Properties | Select-Object -ExpandProperty Name
+            $lines = foreach ($p in $props) {
+                try {
+                    "$p = $($object.$p)"
+                } catch {
+                    "$p = <unreadable>"
+                }
             }
-        }
-        $choice = Read-Host $message
-        if ($null -eq $choice -or $choice -lt 0 -or $choice -gt $objects.Count +1) {
-            Set-PrintAndLog -message "Invalid selection. Please enter a number from above"
-        }
-        if ($choice -eq 0 -and $true -eq $allowNull) {
-            return $null
-        }
-        if ($null -ne $objects[$choice - 1]){
-            return $objects[$choice - 1]
+            "# Type: $($object.GetType().FullName)`n" + ($lines -join "`n")
+        } catch {
+            "Unreadable Object"
         }
     }
+
+    if (-not $stringifiedObject) {
+        $stringifiedObject =  try {"$($($object).ToString())"} catch {$null}
+    }
+    # Truncate to max lines if necessary
+    $lines = $stringifiedObject -split "`r?`n"
+    if ($lines.Count -gt $MaxLines) {
+        $lines = $lines[0..($MaxLines - 1)] + "... (truncated)"
+    }
+
+    return $lines -join "`n"
 }
-function Get-YesNoResponse($message) {
+
+function Get-SelectObjectListDisplayText {
+    param (
+        $Object,
+        [bool]$InspectObjects = $false
+    )
+
+    if ($InspectObjects) {
+        return (Write-InspectObject -object $Object)
+    } elseif ($null -ne $Object.OptionMessage) {
+        return [string]$Object.OptionMessage
+    } elseif (-not $([string]::IsNullOrEmpty($Object.attributes.name))) {
+        return [string]$Object.attributes.name
+    } elseif (-not $([string]::IsNullOrEmpty($Object.name))) {
+        return [string]$Object.name
+    } elseif (-not $([string]::IsNullOrEmpty($Object.Name))) {
+        return [string]$Object.Name
+    }
+
+    return [string]$Object
+}
+
+function Select-ObjectFromList($objects, $message, $inspectObjects = $false, $allowNull = $false) {
+    $objects = @($objects)
+    if ($objects.Count -gt 1 -and -not ($objects | Where-Object { $_ -is [string] })) {
+        $objects = @($objects | Sort-Object @{ Expression = { Get-SelectObjectListDisplayText -Object $_ -InspectObjects $inspectObjects } })
+    }
+
+    $validated = $false
+    while (-not $validated) {
+        if ($allowNull) { Write-Host "0: None/Custom" }
+
+        for ($i = 0; $i -lt $objects.Count; $i++) {
+            $object = $objects[$i]
+            $displayLine = "$($i+1): $(Get-SelectObjectListDisplayText -Object $object -InspectObjects $inspectObjects)"
+            Write-Host $displayLine -ForegroundColor $(if ($i % 2 -eq 0) { 'Cyan' } else { 'Yellow' })
+        }
+
+        $raw = Read-Host $message
+
+        $parsed = 0
+        if (-not [int]::TryParse($raw, [ref]$parsed)) {
+            Write-Host "Invalid input. Please enter a number." -ForegroundColor Red
+            continue
+        }
+
+        if ($parsed -eq 0 -and $allowNull) { return $null }
+
+        if ($parsed -ge 1 -and $parsed -le $objects.Count) {
+            return $objects[$parsed - 1]
+        } else {
+            Write-Host "Invalid selection. Please enter a number from the list." -ForegroundColor Red
+        }
+    }
+}function Get-YesNoResponse($message) {
     do {
         $response = Read-Host "$message (y/n)"
         $response = if($null -ne $response) {$response.ToLower()} else {""}
@@ -253,6 +339,70 @@ function New-HuduStubArticle {
     return (New-HuduArticle @params).article
 }
 
+function Get-HuduExistingArticleByExactName {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Title,
+
+        [nullable[int]]$CompanyId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Title)) { return $null }
+
+    $articles = if ($null -ne $CompanyId -and $CompanyId -ge 1) {
+        @(Get-HuduArticles -Name $Title -CompanyId $CompanyId)
+    } else {
+        @(Get-HuduArticles -Name $Title)
+    }
+
+    $normalizedTitle = $Title.Trim().ToLowerInvariant()
+
+    $matches = @(
+        foreach ($article in $articles) {
+            $articleName = [string]($article.name ?? $article.Name)
+            if ($articleName.Trim().ToLowerInvariant() -ne $normalizedTitle) { continue }
+
+            $articleCompanyId = $article.company_id ?? $article.companyId ?? $article.company.id ?? $article.CompanyId
+            if ($null -ne $CompanyId -and $CompanyId -ge 1) {
+                if ([int]$articleCompanyId -ne [int]$CompanyId) { continue }
+            } else {
+                if ($articleCompanyId -and [int]$articleCompanyId -gt 0) { continue }
+            }
+
+            $article
+        }
+    )
+
+    return $matches | Select-Object -First 1
+}
+
+function Write-SharePointExistingArticleSkipState {
+    param (
+        [Parameter(Mandatory)]
+        $Doc,
+
+        [Parameter(Mandatory)]
+        $ExistingArticle,
+
+        [string]$Message = "Skipped because matching Hudu article already exists"
+    )
+
+    if (
+        $RunSummary.SetupInfo.ResumeFromState -and
+        -not [string]::IsNullOrWhiteSpace([string]$Doc.SourceKey)
+    ) {
+        $stateEntry = Write-SharePointMigrationStateEntry `
+            -Path $RunSummary.OutputJsonFiles.MigrationState `
+            -Item $Doc `
+            -Status Completed `
+            -HuduType Article `
+            -HuduId ($ExistingArticle.id ?? $ExistingArticle.Id) `
+            -Message $Message
+
+        $SharePointMigrationState[$Doc.SourceKey] = $stateEntry
+    }
+}
+
 function Get-SafeTitle {
     param ([string]$Name)
 
@@ -264,5 +414,72 @@ function Get-SafeTitle {
     $safe = $decoded -replace '[\\/:*?"<>|]', ' '
     $safe = ($safe -replace '\s{2,}', ' ').Trim()
     return $safe
+}
+
+function Clear-SharePointBatchWorkingFiles {
+    param (
+        [array]$Files = @(),
+        [string]$SiteRootPath,
+        [string]$TempPath
+    )
+
+    $pathsToRemove = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in @($Files)) {
+        foreach ($propertyName in @('LocalPath', 'NewPath')) {
+            if ($file.PSObject.Properties[$propertyName] -and $file.$propertyName) {
+                [void]$pathsToRemove.Add([string]$file.$propertyName)
+            }
+        }
+
+        foreach ($propertyName in @('ExternalFiles', 'Base64ImagesWritten', 'AllAttachments')) {
+            if (-not $file.PSObject.Properties[$propertyName]) { continue }
+            foreach ($path in @($file.$propertyName)) {
+                if ($path) {
+                    [void]$pathsToRemove.Add([string]$path)
+                }
+            }
+        }
+    }
+
+    foreach ($path in $pathsToRemove) {
+        try {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+            }
+        } catch {
+            Set-PrintAndLog -message "Failed to clear working file $path`: $($_.Exception.Message)" -Color Yellow
+        }
+    }
+
+    if ($SiteRootPath -and (Test-Path -LiteralPath $SiteRootPath)) {
+        try {
+            $resolvedSiteRoot = (Resolve-Path -LiteralPath $SiteRootPath).Path
+            $resolvedAllSitesRoot = (Resolve-Path -LiteralPath $allSitesfolder).Path
+            $normalizedAllSitesRoot = $resolvedAllSitesRoot.TrimEnd('\')
+            $isChildSiteFolder = (
+                -not [string]::Equals($resolvedSiteRoot.TrimEnd('\'), $normalizedAllSitesRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
+                $resolvedSiteRoot.StartsWith("$normalizedAllSitesRoot\", [System.StringComparison]::OrdinalIgnoreCase)
+            )
+
+            if ($isChildSiteFolder) {
+                Remove-Item -LiteralPath $resolvedSiteRoot -Recurse -Force -ErrorAction Stop
+                Set-PrintAndLog -message "Cleared site working folder: $resolvedSiteRoot" -Color DarkCyan
+            } else {
+                Set-PrintAndLog -message "Refusing to clear site folder outside all-sites root: $resolvedSiteRoot" -Color Red
+            }
+        } catch {
+            Set-PrintAndLog -message "Failed to clear site working folder $SiteRootPath`: $($_.Exception.Message)" -Color Yellow
+        }
+    }
+
+    if ($TempPath -and (Test-Path -LiteralPath $TempPath)) {
+        try {
+            Get-ChildItem -LiteralPath $TempPath -File -Force -ErrorAction Stop |
+                Remove-Item -Force -ErrorAction Stop
+            Set-PrintAndLog -message "Cleared top-level temp files in $TempPath" -Color DarkCyan
+        } catch {
+            Set-PrintAndLog -message "Failed to clear temp files in $TempPath`: $($_.Exception.Message)" -Color Yellow
+        }
+    }
 }
 

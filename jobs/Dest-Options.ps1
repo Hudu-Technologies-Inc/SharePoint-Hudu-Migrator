@@ -16,6 +16,10 @@ $RunSummary.JobInfo.MigrationDest=$(Select-ObjectFromList -Objects @(
     [PSCustomObject]@{
         OptionMessage= "To Multiple Companies in Hudu - Let Me Choose for Each article ($($AllCompanies.count) available destination company choices)"
         Identifier = 2
+    },
+    [PSCustomObject]@{
+        OptionMessage= "To Companies in Hudu - Match/Create one company per SharePoint site"
+        Identifier = 3
     }) -message "Configure Destination (Hudu-Side) Options- $($RunSummary.JobInfo.MigrationSource.OptionMessage) to where in Hudu?" -allowNull $false)
 
 
@@ -35,6 +39,27 @@ if ([int]$RunSummary.JobInfo.MigrationDest.Identifier -eq 0) {
         OptionMessage        = "No Company Attribution (Upload As Global/Central KnowledgeBase Article)"
         IsGlobalKB           = $true
     }    
+} elseif ([int]$RunSummary.JobInfo.MigrationDest.Identifier -eq 2) {
+    foreach ($company in $AllCompanies) {
+        $Attribution_Options+=[PSCustomObject]@{
+            CompanyId            = $company.Id
+            CompanyName          = $company.Name
+            OptionMessage        = "Company Name: $($company.Name), Company ID: $($company.Id)"
+            IsGlobalKB           = $false
+        }
+    }
+    $Attribution_Options+=[PSCustomObject]@{
+        CompanyId            = 0
+        CompanyName          = "Global KB"
+        OptionMessage        = "No Company Attribution (Upload As Global/Central KnowledgeBase Article)"
+        IsGlobalKB           = $true
+    }
+    $Attribution_Options+=[PSCustomObject]@{
+        CompanyId            = -1
+        CompanyName          = "None (SKIP FOR NOW)"
+        OptionMessage        = "Skipped"
+        IsGlobalKB           = $false
+    }
 } else {
     foreach ($company in $AllCompanies) {
         $Attribution_Options+=[PSCustomObject]@{

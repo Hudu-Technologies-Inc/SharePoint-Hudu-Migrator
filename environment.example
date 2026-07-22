@@ -9,4 +9,119 @@ $clientSecret= ""
 $hudubaseurl = "yoururl.huducloud.com"
 $huduapikey = ""
 
+# Optional: file types that should become folder-level Hudu index articles
+# instead of being converted into one article per file.
+# $SharePointIndexOnlyExtensions = @(".eps", ".ai", ".psd", ".indd")
+
+# Optional: process one site at a time and clear downloaded/converted working
+# files after each site. Useful for runners with limited free disk space.
+# $SharePointLowDiskMode = $true
+
+# Optional: skip SharePoint drive items already completed in a prior run.
+# Uses logs\sharepoint-migration-state.jsonl and compares SharePoint item ID + ETag.
+# $SharePointResumeFromState = $true
+# $SharePointResumeIgnoreETag = $false
+
+# Optional: skip if an article with the same exact name already exists in the
+# target Hudu company/global KB. When the company can be resolved automatically,
+# this happens before conversion/upload work.
+# $SharePointSkipExistingArticles = $true
+
+# Optional: upload PDFs as attached files on stub articles instead of converting
+# them. Article names keep the .pdf extension for post-run is_upload updates.
+# $SharePointPdfUploadAsFile = $true
+
+# Optional: fetch modern SharePoint site pages as HTML/JSON snapshots after
+# source site selection. This does not create Hudu articles yet.
+# $SharePointFetchSitePages = $true
+# Optional: import fetched site page snapshots as Hudu articles using the
+# existing attribution/stub/populate/upload/relink pipeline.
+# $SharePointImportSitePagesAsArticles = $true
+# Optional: ignore site-page entries in sharepoint-migration-state.jsonl when
+# reimporting fetched site page snapshots. Useful after improving page rendering.
+# $SharePointForceReimportSitePages = $true
+
+# Optional maintenance job: find absolute external <img src="..."> refs in Hudu
+# articles, upload those images into Hudu, and rewrite article HTML. Dry run is
+# intentionally the default.
+# $HuduInternalizeExternalArticleImagesDryRun = $true
+# $HuduInternalizeExternalArticleImagesUsePublicPhotos = $true
+# $HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $true
+# $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $false
+# $HuduInternalizeExternalArticleImagesProbeDownloads = $false
+# $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $false
+# $HuduInternalizeExternalArticleImagesMaxArticles = 25
+# $HuduInternalizeExternalArticleImagesArticleIds = @()
+# $HuduInternalizeExternalArticleImagesCompanyIds = @()
+
+# Optional: exclude SharePoint sites from source selection by site displayName
+# or name. Matching is case/punctuation-insensitive.
+# $SharePointSiteSkipNames = @(
+#   "Archive",
+#   "Old Client Portal"
+# )
+
+# Optional: build and use a fuzzy SharePoint client-list to Hudu company map.
+# Defaults shown here.
+# $SharePointClientAttributionEnabled = $true
+# $SharePointClientAttributionAutoApply = $true
+# In per-site destination mode, try client-list attribution before falling
+# back to matching the SharePoint site name to a company.
+# $SharePointPreferClientAttributionOverSiteCompany = $true
+# Build per-site and per-list client designations from list item metadata.
+# A designation is applied when one company has enough votes from configured
+# client fields in that site/list.
+# $SharePointClientAttributionUseSiteDesignations = $true
+# $SharePointClientAttributionUseListDesignations = $true
+# $SharePointClientAttributionDesignationMinShare = 0.8
+# $SharePointClientAttributionDesignationMinItems = 1
+# $SharePointClientAttributionClientsPath = ".\clients.json"
+# clients.json can be a string array, or objects with name/title, aliases,
+# huduCompanyId/companyId, and huduCompanyName/companyName.
+# $SharePointClientAttributionUseCachedMap = $true
+# $SharePointClientAttributionForceRebuildMap = $false
+# Use this to elect which SharePoint list(s) contain client names.
+# $SharePointClientAttributionListNames = @("Client List")
+# Use this to elect which fields on other lists point at the client/company.
+# Internal names like Select_x0020_a_x0020_Client are decoded before matching.
+# $SharePointClientAttributionFieldNames = @("Select a Client", "Client Name", "Client", "Customer", "Company", "LinkTitle")
+# $SharePointClientAttributionMinScore = 95
+# $SharePointClientAttributionMinGap = 5
+# $SharePointClientAttributionListItemMinScore = 95
+# $SharePointClientAttributionListItemMinGap = 3
+# $SharePointClientAttributionCreateMissing = $false
+
+# Optional: when selecting "Match/Create one company per SharePoint site",
+# tune matching and whether missing companies should be created.
+# $SharePointSiteCompanyMinScore = 95
+# $SharePointSiteCompanyMinGap = 5
+# $SharePointSiteCompanyCreateMissing = $true
+# $SharePointSiteCompanyUseCachedMap = $true
+# $SharePointSiteCompanyForceRebuildMap = $false
+
+# Optional: export selected SharePoint lists as per-company JSON bundles
+# instead of trying to turn structured inventory records into articles.
+# Matches also work when SharePoint appends suffixes like "_[test]".
+# $SharePointStructuredListJsonNames = @(
+#   "Mapped Drives",
+#   "Mail Flow",
+#   "Domain/Forest info",
+#   "Software Shares",
+#   "Core Networking",
+#   "Products",
+#   "Printers",
+#   "Active Servers",
+#   "UPS - Battery Backups",
+#   "Network Devices",
+#   "Web Hosting",
+#   "Locations",
+#   "Important Client Notes",
+#   "Primary Contact",
+#   "3rd Party - Escalation Contact Info",
+#   "ISP Info",
+#   "Connectivity"
+# )
+# Stop after writing structured-list JSON bundles; skip file conversion and article upload.
+# $SharePointStructuredListJsonOnly = $true
+
 . .\Sharepoint-Migration.ps1

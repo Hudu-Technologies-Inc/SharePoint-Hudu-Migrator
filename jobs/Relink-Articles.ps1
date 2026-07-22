@@ -1,11 +1,22 @@
 
 function Relink-DocumentUploads {
     param (
-        [Parameter(Mandatory)] [array]$Docs
+        [AllowEmptyCollection()] [array]$Docs = @()
         
     )
 
+    $Docs = @($Docs | Where-Object { $null -ne $_ })
+    if ($Docs.Count -lt 1) {
+        Set-PrintAndLog -message "No stubbed articles queued for relinking." -Color DarkGray
+        return
+    }
+
     foreach ($doc in $Docs) {
+        if (-not $doc -or -not $doc.stub -or -not $doc.stub.id) {
+            Set-PrintAndLog -message "Skipping relink for item without a Hudu stub: $($doc.title ?? $doc.LocalPath ?? $doc.Name ?? 'unknown')" -Color DarkGray
+            continue
+        }
+
         $baseName = [System.IO.Path]::GetFileNameWithoutExtension($doc.FilePath)
         $htmlPath = $doc.NewPath
 
@@ -14,7 +25,7 @@ function Relink-DocumentUploads {
         $uploadedPath   = "$htmlPath-uploaded.json"
         $attachmentsPath = "$htmlPath-attachments.json"
         # Load data
-        $uploadedInfo = $doc.UploadedFiles
+        $uploadedInfo = @($doc.UploadedFiles)
         $foundLinks   = Get-LinksFromHTML -htmlContent $doc.ReplacedContent -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $true
         $attachments  = $doc.AllAttachments
         $webViewUrl = $doc.webViewUrl
@@ -22,10 +33,17 @@ function Relink-DocumentUploads {
             $webViewUrl = @($doc.OriginalLinks)[0]
         }
 
-        $originalFilename = $uploadedInfo.OriginalFilename
-        $filenameOnly = [System.IO.Path]::GetFileName($originalFilename).ToLowerInvariant()
+        $originalFilename = @($uploadedInfo | Where-Object { $_.OriginalFilename } | Select-Object -First 1).OriginalFilename
+        if (-not $originalFilename) {
+            $originalFilename = $doc.OriginalFilename ?? $doc.LocalPath
+        }
+        $filenameOnly = if ($originalFilename) {
+            [System.IO.Path]::GetFileName($originalFilename).ToLowerInvariant()
+        } else {
+            ""
+        }
 
-        $docAsAttachmentUrl           = $uploadedInfo.url
+        $docAsAttachmentUrl = @($uploadedInfo | Where-Object { $_.url } | Select-Object -First 1).url
         $AttachmentMap = @{}
         foreach ($upload in $doc.UploadedFiles) {
             if (-not $upload.PSObject.Properties['ext']) {
@@ -39,9 +57,9 @@ function Relink-DocumentUploads {
         $html = $doc.replacedContent
         if (-not $doc.PSObject.Properties['OverrideContent']) {
         # Replace all links or filenames matching the original filename, then attachments
-            $updatedHTML = Replace-HuduAttachmentLinkBlock -html $updatedHTML -sourceFile $doc
+            $html = Replace-HuduAttachmentLinkBlock -html $html -sourceFile $doc
             foreach ($link in $foundLinks) {
-                if ($link.ToLowerInvariant() -like "*$filenameOnly*") {
+                if ($filenameOnly -and $docAsAttachmentUrl -and $link.ToLowerInvariant() -like "*$filenameOnly*") {
                     Set-PrintandLog -Message "linking $($link.ToLowerInvariant()) => $docAsAttachmentUrl via $filenameOnly"
                     $html = $html -replace [regex]::Escape($link), $docAsAttachmentUrl
                 }
@@ -53,7 +71,11 @@ function Relink-DocumentUploads {
                     }
                 }
             }
-            $updatedHTML = $html -replace [regex]::Escape($originalFilename), $docAsAttachmentUrl
+            $updatedHTML = if ($originalFilename -and $docAsAttachmentUrl) {
+                $html -replace [regex]::Escape($originalFilename), $docAsAttachmentUrl
+            } else {
+                $html
+            }
             $updatedHTML = Replace-SharePointAttachmentTags -Html $updatedHTML -AttachmentMap $AttachmentMap -HuduBaseUrl $HuduBaseURL
             $updatedHTML = Replace-SharePointLinkBlock -html $updatedHTML -webViewUrl $webViewUrl        
         } else {
@@ -62,11 +84,25 @@ function Relink-DocumentUploads {
 
 
         $doc.replacedContent =$updatedHTML
-        if ($null -ne $doc.companyId -and $doc.companyId -ge 1) {
+        $updatedArticle = if ($null -ne $doc.companyId -and $doc.companyId -ge 1) {
             Set-HuduArticle -id $doc.stub.id -content $updatedHTML -CompanyId $doc.companyId
         } else {
             Set-HuduArticle -id $doc.stub.id -content $updatedHTML
         }
+        $updatedArticle = $updatedArticle.Article ?? $updatedArticle
+
+        if ($RunSummary.SetupInfo.ResumeFromState -and -not [string]::IsNullOrWhiteSpace([string]$doc.SourceKey)) {
+            $stateEntry = Write-SharePointMigrationStateEntry `
+                -Path $RunSummary.OutputJsonFiles.MigrationState `
+                -Item $doc `
+                -Status Completed `
+                -HuduType Article `
+                -HuduId ($updatedArticle.id ?? $doc.stub.id) `
+                -Message "Article relinked successfully"
+
+            $SharePointMigrationState[$doc.SourceKey] = $stateEntry
+        }
+
         # Save back
         $doc.ReplacedLinks = Get-LinksFromHTML -htmlContent $updatedHTML -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $false
         Save-HtmlSnapshot -PageId $doc.id -Title $doc.title -Content $updatedHTML -Suffix "relinked" -OutDir $tmpfolder
@@ -74,4 +110,4 @@ function Relink-DocumentUploads {
         Set-PrintAndLog "Relinked HTML: $htmlPath" -Color Green
     }
 }
-Relink-DocumentUploads -docs $stubbedArticles
+Relink-DocumentUploads -docs @($stubbedArticles)

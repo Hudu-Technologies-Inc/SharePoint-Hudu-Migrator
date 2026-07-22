@@ -13,3 +13,9 @@ environ*.ps1
 *.reference
 filearray.reference
 !environment.example
+jsondump*
+jsondump/*
+plan.notes
+out/*
+clients.json
+clients*

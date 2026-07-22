@@ -2,7 +2,9 @@
 Easy Migration from SharePoint to Hudu
 
 ## Note on Intended Purpose
-If you are working from a single mapped SharePoint drive rather than multiple SharePoint sites, you may prefer the direct [Files-Hudu-Migration](https://github.com/Hudu-Technologies-Inc/Files-Hudu-Migration) tool. However, for environments with multiple SharePoint sites, this project is the recommended solution. It preserves inter-site links and treats each SharePoint site as a distinct entity, whereas Files-Hudu-Migration processes each file or folder as an individual entity.
+If you are working from a single mapped SharePoint drive rather than multiple SharePoint sites or you only care about the hosted files being converted to articles, you may prefer the direct [Files-Hudu-Migration](https://github.com/Hudu-Technologies-Inc/Files-Hudu-Migration) tool. 
+
+However, for environments with multiple SharePoint sites, drives, lists, pages, or detailed folder structure, this project is the recommended solution. It preserves inter-site links and treats each SharePoint site as a distinct entity, whereas Files-Hudu-Migration processes each file or folder as an individual entity.
 
 ### Prerequisites
 
@@ -32,6 +34,262 @@ And then you can kick it off by opening `pwsh7` session as `administrator`, and 
 
 ```
 . .\my-environment.ps1
+```
+
+### Optional Environment Settings
+
+The migration can be tuned by uncommenting or adding settings in your environment file before the final `. .\Sharepoint-Migration.ps1` line.
+
+#### Resume and Disk Usage
+
+Use resume mode to skip SharePoint drive items that were already completed in a prior run. By default, the script compares SharePoint item ID and ETag from `logs\sharepoint-migration-state.jsonl`.
+
+```powershell
+$SharePointResumeFromState = $true
+$SharePointResumeIgnoreETag = $false
+```
+
+Low-disk mode processes one site/drive/root item batch at a time and clears working files after each batch.
+
+```powershell
+$SharePointLowDiskMode = $true
+```
+
+To avoid creating duplicate Hudu articles, the script can skip articles when the exact title already exists in the target company or global KB.
+
+```powershell
+$SharePointSkipExistingArticles = $true
+```
+
+When the destination company can be resolved without prompting, this check runs immediately after SharePoint discovery so matching files are removed before conversion, indexing, stubbing, image upload, or article population. Skipped files are still written to the resume state, so reinvoking the migration does not reprocess them.
+
+#### Site Selection Filters
+
+You can hide known-unwanted SharePoint sites from the selection prompts and from "all sites" runs. Matching is case/punctuation-insensitive and checks both SharePoint `displayName` and `name`.
+
+```powershell
+$SharePointSiteSkipNames = @(
+  "Archive",
+  "Old Client Portal"
+)
+```
+
+#### File Conversion Controls
+
+Some file types can be grouped into folder-level Hudu file index articles instead of becoming one article per file.
+
+```powershell
+$SharePointIndexOnlyExtensions = @(".eps", ".ai", ".psd", ".indd")
+```
+
+PDFs can also be attached to generated stub articles instead of converted to HTML.
+
+```powershell
+$SharePointPdfUploadAsFile = $true
+```
+
+Paths containing literal wildcard characters, such as `[NEW CLIENT]`, are handled with literal path checks during conversion, reading, and attachment upload.
+
+#### Client Attribution
+
+Client attribution can build a SharePoint-client-to-Hudu-company map from either a local `clients.json` file or from one or more SharePoint lists. Matching normalizes case, accents, punctuation, and legal suffixes where practical, then uses high-confidence exact/compact matches before fuzzy matching.
+
+```powershell
+$SharePointClientAttributionEnabled = $true
+$SharePointClientAttributionAutoApply = $true
+$SharePointClientAttributionClientsPath = ".\clients.json"
+$SharePointClientAttributionListNames = @("Client List")
+```
+
+`clients.json` may be a simple string array:
+
+```json
+[
+  "Example Company (EXAMPLE) [Provider]"
+  "Exemplary Co (EXAMPLE) [Provider]"
+]
+```
+
+Or it may contain richer objects with aliases or known Hudu company IDs:
+
+```json
+[
+  {
+    "name": "Jolly Inc.",
+    "aliases": ["Jolly"],
+    "huduCompanyId": 123
+  }
+]
+```
+
+If your structured SharePoint lists use a client picker or lookup column, configure the field names here. SharePoint internal names such as `Select_x0020_a_x0020_Client` are decoded before matching.
+
+```powershell
+$SharePointClientAttributionFieldNames = @(
+  "Select a Client",
+  "Client Name",
+  "Client",
+  "Customer",
+  "Company",
+  "LinkTitle"
+)
+```
+
+When using the destination option "Match/Create one company per SharePoint site", client attribution is tried before site-name attribution by default. This helps prevent generic sites like `Calendar`, `Export`, or `Management` from becoming the company assignment when document/list metadata contains a better client signal.
+
+```powershell
+$SharePointPreferClientAttributionOverSiteCompany = $true
+```
+
+The script can also roll up list item metadata into per-site and per-list client designations. For example, if most items in a list have `Select a Client` set to `Jolly`, the list can inherit Jolly as its default company. If most matching client fields across a site point to the same company, documents in that site can inherit the site designation before falling back to broader path/title matching.
+
+```powershell
+$SharePointClientAttributionUseSiteDesignations = $true
+$SharePointClientAttributionUseListDesignations = $true
+$SharePointClientAttributionDesignationMinShare = 0.8
+$SharePointClientAttributionDesignationMinItems = 1
+```
+
+Designation maps are written to `logs\client-designation-map.json` for review. Raise `SharePointClientAttributionDesignationMinShare` for mixed-client sites/lists; lower it only when the source metadata is sparse but trustworthy.
+
+These thresholds control how confident matches need to be before auto-application. Raising them reduces false positives; lowering them increases automation.
+
+```powershell
+$SharePointClientAttributionMinScore = 95
+$SharePointClientAttributionMinGap = 5
+$SharePointClientAttributionListItemMinScore = 95
+$SharePointClientAttributionListItemMinGap = 3
+$SharePointClientAttributionCreateMissing = $false
+```
+
+Client attribution maps are cached in `logs\client-attribution-map.json`. If `clients.json` is newer than the cache, the map is rebuilt automatically. You can force a rebuild:
+
+```powershell
+$SharePointClientAttributionUseCachedMap = $true
+$SharePointClientAttributionForceRebuildMap = $true
+```
+
+#### Site Company Attribution
+
+The per-site destination mode can match SharePoint site names to Hudu companies, optionally creating missing companies. This is useful when each SharePoint site really represents one client. If client attribution is preferred, unmatched site names will not create companies automatically.
+
+```powershell
+$SharePointSiteCompanyMinScore = 95
+$SharePointSiteCompanyMinGap = 5
+$SharePointSiteCompanyCreateMissing = $true
+$SharePointSiteCompanyUseCachedMap = $true
+$SharePointSiteCompanyForceRebuildMap = $false
+```
+
+#### Structured List JSON Export
+
+You can export selected SharePoint lists as per-company JSON bundles for later asset import. This is useful for inventory-like lists such as network devices, printers, contacts, locations, and ISP info.
+
+```powershell
+$SharePointStructuredListJsonNames = @(
+  "Mapped Drives",
+  "Printers",
+  "Network Devices",
+  "Locations",
+  "ISP Info"
+)
+```
+
+To skip structured-list export and migrate files only, leave it unset or set it to an empty array:
+
+```powershell
+$SharePointStructuredListJsonNames = @()
+```
+
+Otherwise, include the names of the lists that correspond to assets you'd like to create in Hudu:
+
+```powershell
+$SharePointStructuredListJsonNames = @("company vehicles","workstations","external users")
+```
+
+To generate only the structured-list JSON bundles and stop before file conversion/article upload:
+
+```powershell
+$SharePointStructuredListJsonOnly = $true
+```
+
+#### Site Page Fetching
+
+For an initial SharePoint site page export, enable the fetch job:
+
+```powershell
+$SharePointFetchSitePages = $true
+```
+
+The main runner will fetch pages after source site selection. You can also run the job manually from an authenticated session with `$userSelectedSites` populated:
+
+```powershell
+. .\jobs\Get-SitePages.ps1
+```
+
+This writes page HTML snapshots to `logs\site-pages-html`, raw page/webpart JSON to `logs\site-pages-json`, and a review CSV to `logs\site-pages-index.csv`. It uses Microsoft Graph site pages and webparts endpoints and is intended as a first-pass capture before wiring site pages into Hudu article creation.
+
+To import fetched site page snapshots as Hudu articles, enable:
+
+```powershell
+$SharePointImportSitePagesAsArticles = $true
+```
+
+The importer treats site pages as pre-converted HTML documents and reuses the existing attribution, skip-existing, stub, populate, upload, and relink stages. Base64-embedded images are extracted to `logs\site-pages-assets` and queued as Hudu uploads; external image URLs are left in the HTML and recorded for review.
+
+If you need to rerun page imports after improving page rendering, ignore only the site-page resume state with:
+
+```powershell
+$SharePointForceReimportSitePages = $true
+```
+
+This is separate from `$SharePointSkipExistingArticles`, which controls the duplicate Hudu article title/org check.
+
+#### External Article Images
+
+After importing pages, you can scan Hudu articles for absolute external `<img src="...">` values, upload those images to Hudu, and rewrite the image sources. Before downloading a remote image, the job can check existing Hudu uploads and public photos by exact filename and reuse a matching Hudu URL. The job is dry-run by default:
+
+```powershell
+$HuduInternalizeExternalArticleImagesDryRun = $true
+. .\jobs\Internalize-ExternalArticleImages.ps1
+```
+
+To check whether external images appear downloadable while staying in dry-run, enable the probe option. This sends a lightweight `HEAD` request first and falls back to a one-byte ranged `GET` when needed:
+
+```powershell
+$HuduInternalizeExternalArticleImagesDryRun = $true
+$HuduInternalizeExternalArticleImagesProbeDownloads = $true
+. .\jobs\Internalize-ExternalArticleImages.ps1
+```
+
+Review `logs\internalized-external-images\internalized-external-images.csv`, then run with dry-run disabled when ready. For an external-image-only rewrite, keep unexpected local/relative rewrites and scrubbing disabled:
+
+```powershell
+$HuduInternalizeExternalArticleImagesDryRun = $false
+$HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $true
+$HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $false
+$HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $false
+. .\jobs\Internalize-ExternalArticleImages.ps1
+```
+
+The report also classifies unexpected local image sources. Expected Hudu image/file paths include relative or absolute `public_photo`, `public_photos`, `photo`, `photos`, `upload`, `uploads`, `file`, and `files` URLs, with or without a leading slash.
+
+To disable reuse of existing Hudu uploads/public photos before downloading external images, set:
+
+```powershell
+$HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $false
+```
+
+Unexpected local/relative image sources are reported but not rewritten by default, even if a filename matches an existing Hudu upload/public photo. To allow those existing-Hudu rewrites in a separate cleanup pass, set:
+
+```powershell
+$HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $true
+```
+
+To remove unexpected local/absolute image tags while internalizing external images, enable:
+
+```powershell
+$HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $true
 ```
 
 Alternatively, if you don't wish to fill out an environment file, you can invoke this script directly and you'll be asked for these values as they are needed.
@@ -82,6 +340,7 @@ Just before the file conversion process begins, this script will download and in
 - transfer everything **to a single Hudu Company**
 - transfer everything **to central / global KB (no company association)**
 - transfer everything **to companies / central kb of my choosing (select a company / destination for each article)**
+- transfer everything **to companies in Hudu by matching/creating one company per SharePoint site**
 
 #### Question 3 - **Would you like to include links to original SharePoint Documents**
 - Yes, **include a link in each Hudu article to original files** in SharePoint
@@ -105,7 +364,7 @@ Just before the file conversion process begins, this script will download and in
 
 All files can be added if they are either
 -under 100mb in size
--under 96000 Characters long when converted to html
+-under 196000 Characters long when converted to html
 
 Otherwise we just link to original file on SharePoint
 
@@ -156,16 +415,19 @@ Files that **don't have an extension**, we'll attempt to decode these as UTF-8
 Files that aren't traditional documents will have a page generated for them with your chosen links. Here's what an image in sharepoint will look like after adding to Hudu: 
 <img width="1184" height="1078" alt="image" src="https://github.com/user-attachments/assets/6a8fc563-49ee-4ed6-b17a-b35c78cc42f1" />
 
-### If a file is too large after conversion (longer than 96000 characters or 100mb)
+### If a file is too large after conversion (longer than 196000 characters or 100mb)
 if this condition is met, the original is uploaded in Hudu and Linked
  <img width="849" height="363" alt="image" src="https://github.com/user-attachments/assets/4354122b-2f97-41ce-b64e-9e0c6262072e" />
 
 #### Effectively, here's the process:
 1. Select desired SharePoint Site(s)
 2. Download all files from selected sites
-3. Convert those that can be converted
-4. Those that can be converted- Parse links, extract images, etc
-5. Those that can't - generate a useful landing page for file
+3. Build optional attribution maps for SharePoint clients and/or sites
+4. Optionally export selected structured SharePoint lists as JSON bundles
+5. Convert files that can be converted
+6. Parse converted HTML for links and embedded files
+7. Generate useful landing pages for files that are not converted
+8. Create, populate, and relink Hudu articles
 
 
 ## FAQs:
@@ -173,6 +435,12 @@ if this condition is met, the original is uploaded in Hudu and Linked
 #### Q: Does my original SharePoint Folder Structure Carry Over?
 A: Yes. If you select a company to attribute an article to, the original folder structure is retained for that article
 <img width="822" height="449" alt="image" src="https://github.com/user-attachments/assets/4e34671d-e769-4553-9566-e573ffb03720" />
+
+#### Q: Can I skip structured SharePoint data and migrate files only?
+A: Yes. Set `$SharePointStructuredListJsonNames = @()` in your environment file.
+
+#### Q: Can SharePoint list metadata decide which Hudu company an item belongs to?
+A: Yes. Use `$SharePointClientAttributionListNames` to identify the SharePoint list that contains client names, and `$SharePointClientAttributionFieldNames` to identify fields on other lists that point to those clients. The matcher ignores common punctuation/case/accent differences and caches repeated lookups.
 
 #### Q: What does a PowerPoint file look like after converting into Hudu?
 A: Pretty basic. Information from each slide is extracted, including images. This information is extracted into a web-friendly Article
@@ -192,4 +460,3 @@ A: It constructs an HTML table from your spreadsheet. Large spreadsheets are les
 [![Facebook](https://img.shields.io/badge/Facebook-HuduHQ-1877F2?logo=facebook)](https://www.facebook.com/HuduHQ/)
 [![Instagram](https://img.shields.io/badge/Instagram-@huduhq-E4405F?logo=instagram)](https://www.instagram.com/huduhq/)
 [![Feature Requests](https://img.shields.io/badge/Feedback-Feature_Requests-brightgreen?logo=github)](https://hudu.canny.io/)
-

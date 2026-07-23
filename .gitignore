@@ -19,3 +19,6 @@ plan.notes
 out/*
 clients.json
 clients*
+structured-asset-maps.generated.ps1
+*.json
+*.generated.ps1

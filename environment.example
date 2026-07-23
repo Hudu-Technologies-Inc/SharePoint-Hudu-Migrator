@@ -124,4 +124,24 @@ $huduapikey = ""
 # Stop after writing structured-list JSON bundles; skip file conversion and article upload.
 # $SharePointStructuredListJsonOnly = $true
 
+# Optional: rebuild structured-list JSON bundles from an existing manifest dump
+# instead of rerunning SharePoint discovery.
+# $SharePointStructuredListJsonManifestPath = ".\out\sharepoint-manifests\graph-sharepoint-all-manifest.json"
+# $SharePointStructuredListJsonAttributionMapPath = ".\logs\client-attribution-map.json"
+# $SharePointStructuredListJsonDesignationMapPath = ".\logs\client-designation-map.json"
+# $SharePointStructuredListJsonOutputDirectory = ".\logs\structured-list-json"
+# $SharePointStructuredListJsonIndexPath = ".\logs\structured-list-json-index.csv"
+
+# Optional: import structured-list JSON bundles as Hudu assets. Dry run is the
+# default. Copy structured-asset-maps.example.ps1 to structured-asset-maps.ps1
+# and customize the list-to-layout field maps before live import.
+# $HuduStructuredAssetImportJsonPath = ".\logs\structured-list-json"
+# $HuduStructuredAssetImportMapsPath = ".\structured-asset-maps.ps1"
+# $HuduStructuredAssetImportDryRun = $true
+# $HuduStructuredAssetImportSkipExisting = $true
+# $HuduStructuredAssetImportResolveCompanyByName = $true
+# $HuduStructuredAssetImportFallbackCompanyId = 0
+# $HuduStructuredAssetImportListNames = @()
+# $HuduStructuredAssetImportMaxItems = 0
+
 . .\Sharepoint-Migration.ps1

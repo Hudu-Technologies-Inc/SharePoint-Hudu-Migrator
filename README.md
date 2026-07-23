@@ -213,6 +213,81 @@ To generate only the structured-list JSON bundles and stop before file conversio
 $SharePointStructuredListJsonOnly = $true
 ```
 
+The structured export writes one JSON bundle per company/list under `logs\structured-list-json`. Each bundle has this shape:
+
+```json
+{
+  "CompanyId": 123,
+  "CompanyName": "Example Client",
+  "ListName": "Network Devices",
+  "SourceLists": [],
+  "Items": [
+    {
+      "SharePointItemId": "1",
+      "WebUrl": "https://...",
+      "MatchStatus": "Auto",
+      "Fields": {}
+    }
+  ]
+}
+```
+
+If you already have a SharePoint manifest dump and want to rebuild the structured JSON bundles without rerunning SharePoint discovery, set the list names and run:
+
+```powershell
+$SharePointStructuredListJsonNames = @("Network Devices", "ISP Info")
+$SharePointStructuredListJsonManifestPath = ".\out\sharepoint-manifests\graph-sharepoint-all-manifest.json"
+$SharePointStructuredListJsonAttributionMapPath = ".\logs\client-attribution-map.json"
+$SharePointStructuredListJsonDesignationMapPath = ".\logs\client-designation-map.json"
+. .\jobs\Export-StructuredListJsonFromDump.ps1
+```
+
+To create a starter asset map from the exported bundle structure:
+
+```powershell
+$HuduStructuredAssetImportJsonPath = ".\logs\structured-list-json"
+. .\jobs\New-StructuredAssetMapTemplate.ps1
+notepad .\structured-asset-maps.generated.ps1
+```
+
+The map file connects each exported `ListName` to a Hudu asset layout and maps SharePoint field names to Hudu field labels:
+
+```powershell
+$HuduStructuredAssetImportMaps = @{
+  "Network Devices" = @{
+    AssetLayoutId = 31
+    NameField = "Title"
+    FieldMap = [ordered]@{
+      "Title" = "Device Name"
+      "w5ud"  = "Model"
+      "joiu"  = "Serial"
+    }
+    PrimaryFieldMap = @{
+      PrimaryModel  = "w5ud"
+      PrimarySerial = "joiu"
+    }
+  }
+}
+```
+
+To import structured JSON bundles as Hudu assets, dry-run first:
+
+```powershell
+$HuduStructuredAssetImportJsonPath = ".\logs\structured-list-json"
+$HuduStructuredAssetImportMapsPath = ".\structured-asset-maps.generated.ps1"
+$HuduStructuredAssetImportDryRun = $true
+. .\jobs\Import-StructuredListAssets.ps1
+```
+
+Review `logs\structured-list-assets\structured-list-asset-import.csv`, then run live:
+
+```powershell
+$HuduStructuredAssetImportDryRun = $false
+. .\jobs\Import-StructuredListAssets.ps1
+```
+
+The importer uses `CompanyId` from each exported bundle, so company attribution happens during export and asset creation stays fast. Unattributed bundles are skipped by default; set `$HuduStructuredAssetImportFallbackCompanyId` only if you intentionally want them parked under one Hudu company. Existing assets with the same normalized name, company, and layout are skipped when `$HuduStructuredAssetImportSkipExisting = $true`.
+
 #### Site Page Fetching
 
 For an initial SharePoint site page export, enable the fetch job:

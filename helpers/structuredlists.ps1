@@ -129,6 +129,8 @@ function Export-SharePointStructuredListJson {
         $AttributionMap = @(),
         $ClientDesignationMap = $null,
         [string[]]$PrimaryAttributionFieldNames = @("Select a Client", "Client", "Customer", "Company", "LinkTitle"),
+        [switch]$UseListDesignation,
+        [switch]$UseSiteDesignation,
         [Parameter(Mandatory)] [string]$OutputDirectory,
         [Parameter(Mandatory)] [string]$IndexPath
     )
@@ -150,6 +152,8 @@ function Export-SharePointStructuredListJson {
     }
 
     $processedItems = 0
+    $useListDesignationValue = [bool]($UseListDesignation.IsPresent -or $RunSummary.SetupInfo.ClientAttributionUseListDesignations)
+    $useSiteDesignationValue = [bool]($UseSiteDesignation.IsPresent -or $RunSummary.SetupInfo.ClientAttributionUseSiteDesignations)
     foreach ($manifest in @($ManifestSet.Manifests)) {
         foreach ($siteEntry in @($manifest.sites)) {
             foreach ($listEntry in @($siteEntry.lists)) {
@@ -189,8 +193,8 @@ function Export-SharePointStructuredListJson {
                             -SiteId $siteEntry.metadata.id `
                             -ListId $listEntry.metadata.id `
                             -ClientDesignationMap $ClientDesignationMap `
-                            -UseListDesignation:$RunSummary.SetupInfo.ClientAttributionUseListDesignations `
-                            -UseSiteDesignation:$RunSummary.SetupInfo.ClientAttributionUseSiteDesignations
+                            -UseListDesignation:$useListDesignationValue `
+                            -UseSiteDesignation:$useSiteDesignationValue
                     } else {
                         $null
                     }

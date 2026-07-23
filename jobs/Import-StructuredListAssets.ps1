@@ -1,10 +1,16 @@
 ##### Optional maintenance job, import structured-list JSON bundles as Hudu assets
 
-$structuredAssetImportDryRun = [bool]($HuduStructuredAssetImportDryRun ?? $true)
-$structuredAssetImportSkipExisting = [bool]($HuduStructuredAssetImportSkipExisting ?? $true)
-$structuredAssetImportResolveCompanyByName = [bool]($HuduStructuredAssetImportResolveCompanyByName ?? $true)
-$structuredAssetImportFallbackCompanyId = [int]($HuduStructuredAssetImportFallbackCompanyId ?? 0)
-$structuredAssetImportMaxItems = [int]($HuduStructuredAssetImportMaxItems ?? 0)
+$presetStructuredAssetImportDryRun = Get-Variable -Name structuredAssetImportDryRun -ValueOnly -ErrorAction SilentlyContinue
+$presetStructuredAssetImportSkipExisting = Get-Variable -Name structuredAssetImportSkipExisting -ValueOnly -ErrorAction SilentlyContinue
+$presetStructuredAssetImportResolveCompanyByName = Get-Variable -Name structuredAssetImportResolveCompanyByName -ValueOnly -ErrorAction SilentlyContinue
+$presetStructuredAssetImportFallbackCompanyId = Get-Variable -Name structuredAssetImportFallbackCompanyId -ValueOnly -ErrorAction SilentlyContinue
+$presetStructuredAssetImportMaxItems = Get-Variable -Name structuredAssetImportMaxItems -ValueOnly -ErrorAction SilentlyContinue
+
+$structuredAssetImportDryRun = [bool]($HuduStructuredAssetImportDryRun ?? $presetStructuredAssetImportDryRun ?? $true)
+$structuredAssetImportSkipExisting = [bool]($HuduStructuredAssetImportSkipExisting ?? $presetStructuredAssetImportSkipExisting ?? $true)
+$structuredAssetImportResolveCompanyByName = [bool]($HuduStructuredAssetImportResolveCompanyByName ?? $presetStructuredAssetImportResolveCompanyByName ?? $true)
+$structuredAssetImportFallbackCompanyId = [int]($HuduStructuredAssetImportFallbackCompanyId ?? $presetStructuredAssetImportFallbackCompanyId ?? 0)
+$structuredAssetImportMaxItems = [int]($HuduStructuredAssetImportMaxItems ?? $presetStructuredAssetImportMaxItems ?? 0)
 $structuredAssetImportListNames = @(
     if ($null -ne $HuduStructuredAssetImportListNames) {
         @($HuduStructuredAssetImportListNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
@@ -426,7 +432,7 @@ if (-not (Test-Path -LiteralPath $reportDirectory -PathType Container)) {
     $null = New-Item -ItemType Directory -Path $reportDirectory -Force
 }
 
-Write-HuduStructuredAssetImportLog -Message "Importing structured-list asset bundles from $structuredAssetImportJsonPath. DryRun=$structuredAssetImportDryRun; SkipExisting=$structuredAssetImportSkipExisting." -Color Cyan
+Write-HuduStructuredAssetImportLog -Message "Importing structured-list asset bundles from $structuredAssetImportJsonPath. MapsPath=$structuredAssetImportMapsPath; DryRun=$structuredAssetImportDryRun; SkipExisting=$structuredAssetImportSkipExisting; FallbackCompanyId=$structuredAssetImportFallbackCompanyId." -Color Cyan
 
 $layoutNameCache = @{}
 $existingAssetCache = @{}

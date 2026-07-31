@@ -46,253 +46,262 @@ $tokenResult = $tokenResult ?? $(Get-MsalToken -ClientId $clientId -TenantId $te
 $accessToken = $accessToken ?? $tokenResult.AccessToken
 $SharePointHeaders = Update-SharePointAccessToken
 
-$manifestParams = @{
-    ManifestMode = 'Auto'
-    ManifestDir  = ".\out\sharepoint-manifests"
-    Headers      = $SharePointHeaders
-    RefreshHeaders = { Update-SharePointAccessToken }
-    FirstSiteOnly = $SharePointManifestFirstSiteOnly ?? $false
-}
-if ($null -ne $SharePointManifestMaxSites -and $SharePointManifestMaxSites -gt 0) {$manifestParams.MaxSites = $SharePointManifestMaxSites}
 
-$manifestSet = Initialize-SharePointManifestSet @manifestParams
+.\jobs\Sync-SharePointDocumentsByCompanyTag.ps1 `
+  -SiteUrl "https://jolera365.sharepoint.com/sites/archive-2026-05-20T145923Z/sd" `
+  -DriveNames "Documents" `
+  -DestinationRootFolderName "SharePoint" `
+  -RefreshExistingContent $true `
+  -UploadSourceFile $true `
+  -MaxItems 25
 
-$workItems = @(ConvertFrom-SharePointManifestSet -ManifestSet $manifestSet)
+# $manifestParams = @{
+#     ManifestMode = 'Auto'
+#     ManifestDir  = ".\out\sharepoint-manifests"
+#     Headers      = $SharePointHeaders
+#     RefreshHeaders = { Update-SharePointAccessToken }
+#     FirstSiteOnly = $SharePointManifestFirstSiteOnly ?? $false
+# }
+# if ($null -ne $SharePointManifestMaxSites -and $SharePointManifestMaxSites -gt 0) {$manifestParams.MaxSites = $SharePointManifestMaxSites}
 
-$SharePointMigrationState = if ($RunSummary.SetupInfo.ResumeFromState) {
-    Import-SharePointMigrationState -Path $RunSummary.OutputJsonFiles.MigrationState
-} else {@{}}
-Set-PrintAndLog -message "Loaded SharePoint migration state: $($SharePointMigrationState.Count) completed/skipped/failed state entr$(if ($SharePointMigrationState.Count -eq 1) { 'y' } else { 'ies' }) from $($RunSummary.OutputJsonFiles.MigrationState)" -Color Cyan
+# $manifestSet = Initialize-SharePointManifestSet @manifestParams
+
+# $workItems = @(ConvertFrom-SharePointManifestSet -ManifestSet $manifestSet)
+
+# $SharePointMigrationState = if ($RunSummary.SetupInfo.ResumeFromState) {
+#     Import-SharePointMigrationState -Path $RunSummary.OutputJsonFiles.MigrationState
+# } else {@{}}
+# Set-PrintAndLog -message "Loaded SharePoint migration state: $($SharePointMigrationState.Count) completed/skipped/failed state entr$(if ($SharePointMigrationState.Count -eq 1) { 'y' } else { 'ies' }) from $($RunSummary.OutputJsonFiles.MigrationState)" -Color Cyan
 
 
 
-##### Step 2 Source and Dest Options
-##
-#
-Set-IncrementedState -newState "Source Data (Sharepoint) and Destination (Hudu) Options"
-# 2.1 Select Source Options
-. .\jobs\Source-Options.ps1
-Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
-Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
-$userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
+# ##### Step 2 Source and Dest Options
+# ##
+# #
+# Set-IncrementedState -newState "Source Data (Sharepoint) and Destination (Hudu) Options"
+# # 2.1 Select Source Options
+# . .\jobs\Source-Options.ps1
+# Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
+# Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
+# $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
 
-if ($RunSummary.SetupInfo.FetchSitePages) {
-    Set-IncrementedState -newState "Fetch SharePoint Site Pages"
-    . .\jobs\Get-SitePages.ps1
-}
+# if ($RunSummary.SetupInfo.FetchSitePages) {
+#     Set-IncrementedState -newState "Fetch SharePoint Site Pages"
+#     . .\jobs\Get-SitePages.ps1
+# }
 
-# 2.2 Select Dest Options
-. .\jobs\Dest-Options.ps1
+# # 2.2 Select Dest Options
+# . .\jobs\Dest-Options.ps1
 
-# 2.3 Build optional site-to-company map
-. .\jobs\Build-SiteCompanyMap.ps1
+# # 2.3 Build optional site-to-company map
+# . .\jobs\Build-SiteCompanyMap.ps1
 
-# 2.4 Build optional client attribution map
-. .\jobs\Build-ClientAttributionMap.ps1
+# # 2.4 Build optional client attribution map
+# . .\jobs\Build-ClientAttributionMap.ps1
 
-# 2.5 Export configured structured SharePoint lists for later asset import
-. .\jobs\Export-StructuredListJson.ps1
+# # 2.5 Export configured structured SharePoint lists for later asset import
+# . .\jobs\Export-StructuredListJson.ps1
 
-if ($RunSummary.SetupInfo.StructuredListJsonOnly) {
-    $RunSummary.JobInfo.FinishedAt = Get-Date
-    $RunSummary.JobInfo.RunDuration = New-TimeSpan -Start $RunSummary.JobInfo.StartedAt -End $RunSummary.JobInfo.FinishedAt
-    Set-PrintAndLog -message "Structured list JSON only mode enabled; stopping before file conversion and article upload." -Color Green
-    $RunSummary | ConvertTo-Json -Depth 50 | Out-File -FilePath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
-    return
-}
+# if ($RunSummary.SetupInfo.StructuredListJsonOnly) {
+#     $RunSummary.JobInfo.FinishedAt = Get-Date
+#     $RunSummary.JobInfo.RunDuration = New-TimeSpan -Start $RunSummary.JobInfo.StartedAt -End $RunSummary.JobInfo.FinishedAt
+#     Set-PrintAndLog -message "Structured list JSON only mode enabled; stopping before file conversion and article upload." -Color Green
+#     $RunSummary | ConvertTo-Json -Depth 50 | Out-File -FilePath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
+#     return
+# }
 
-if ($RunSummary.SetupInfo.ImportSitePagesAsArticles) {
-    Set-IncrementedState -newState "Import SharePoint Site Pages as Hudu Articles"
-    . .\jobs\Import-SitePagesAsArticles.ps1
-}
+# if ($RunSummary.SetupInfo.ImportSitePagesAsArticles) {
+#     Set-IncrementedState -newState "Import SharePoint Site Pages as Hudu Articles"
+#     . .\jobs\Import-SitePagesAsArticles.ps1
+# }
 
-##### Step 4, Initialize Libreoffice/Poppler and Convert Files
-##
-#
-Set-IncrementedState -newState "Initialize Libreoffice/Poppler and Convert Files"
-Set-PrintAndLog "Checking for Libreoffice and installing if not present. If not presnt, follow the on-screen prompts from the installer with default values and don't select 'Run When Finished' for the last question" -color Green
+# ##### Step 4, Initialize Libreoffice/Poppler and Convert Files
+# ##
+# #
+# Set-IncrementedState -newState "Initialize Libreoffice/Poppler and Convert Files"
+# Set-PrintAndLog "Checking for Libreoffice and installing if not present. If not presnt, follow the on-screen prompts from the installer with default values and don't select 'Run When Finished' for the last question" -color Green
 
-# Step 4.1 Init Libre / Poppler
-$sofficePath=$(if ($true -eq $portableLibreOffice) {$(Get-LibrePortable -tmpfolder $tmpfolder)} else {$(Get-LibreMSI -tmpfolder $tmpfolder)})
-Stop-LibreOffice
+# # Step 4.1 Init Libre / Poppler
+# $sofficePath=$(if ($true -eq $portableLibreOffice) {$(Get-LibrePortable -tmpfolder $tmpfolder)} else {$(Get-LibreMSI -tmpfolder $tmpfolder)})
+# Stop-LibreOffice
 
-function Invoke-SharePointMigrationFileBatch {
-    param (
-        [Parameter(Mandatory)] [array]$Sites,
-        [Parameter(Mandatory)] [string]$BatchName,
-        [Parameter(Mandatory)] [string]$SofficePath,
-        [array]$Drives,
-        [array]$RootItems,
-        [switch]$CleanupAfterBatch
-    )
+# function Invoke-SharePointMigrationFileBatch {
+#     param (
+#         [Parameter(Mandatory)] [array]$Sites,
+#         [Parameter(Mandatory)] [string]$BatchName,
+#         [Parameter(Mandatory)] [string]$SofficePath,
+#         [array]$Drives,
+#         [array]$RootItems,
+#         [switch]$CleanupAfterBatch
+#     )
 
-    $AllDiscoveredFiles = [System.Collections.ArrayList]@()
-    $AllDiscoveredFolders = [System.Collections.ArrayList]@()
-    $IndexOnlyFiles = [System.Collections.ArrayList]@()
-    $IndexOnlyArticles = [System.Collections.ArrayList]@()
-    $StubbedArticles = @()
-    $successConverted = @()
+#     $AllDiscoveredFiles = [System.Collections.ArrayList]@()
+#     $AllDiscoveredFolders = [System.Collections.ArrayList]@()
+#     $IndexOnlyFiles = [System.Collections.ArrayList]@()
+#     $IndexOnlyArticles = [System.Collections.ArrayList]@()
+#     $StubbedArticles = @()
+#     $successConverted = @()
 
-    $SourceDataSites = [System.Collections.ArrayList]@()
-    [void]$SourceDataSites.AddRange(@($Sites))
-    $SourceDataDrives = $null
-    if ($null -ne $Drives -and $Drives.Count -gt 0) {
-        $SourceDataDrives = [System.Collections.ArrayList]@()
-        [void]$SourceDataDrives.AddRange(@($Drives))
-    }
-    $SourceDataRootItems = $null
-    if ($null -ne $RootItems -and $RootItems.Count -gt 0) {
-        $SourceDataRootItems = [System.Collections.ArrayList]@()
-        [void]$SourceDataRootItems.AddRange(@($RootItems))
-    }
+#     $SourceDataSites = [System.Collections.ArrayList]@()
+#     [void]$SourceDataSites.AddRange(@($Sites))
+#     $SourceDataDrives = $null
+#     if ($null -ne $Drives -and $Drives.Count -gt 0) {
+#         $SourceDataDrives = [System.Collections.ArrayList]@()
+#         [void]$SourceDataDrives.AddRange(@($Drives))
+#     }
+#     $SourceDataRootItems = $null
+#     if ($null -ne $RootItems -and $RootItems.Count -gt 0) {
+#         $SourceDataRootItems = [System.Collections.ArrayList]@()
+#         [void]$SourceDataRootItems.AddRange(@($RootItems))
+#     }
 
-    Set-IncrementedState -newState "Download From Selection - $BatchName"
-    . .\jobs\Get-SourceData.ps1
+#     Set-IncrementedState -newState "Download From Selection - $BatchName"
+#     . .\jobs\Get-SourceData.ps1
 
-    Set-IncrementedState -newState "Skip Existing Articles Before Conversion - $BatchName"
-    . .\jobs\Skip-ExistingArticlesEarly.ps1
+#     Set-IncrementedState -newState "Skip Existing Articles Before Conversion - $BatchName"
+#     . .\jobs\Skip-ExistingArticlesEarly.ps1
 
-    if ($AllDiscoveredFiles.Count -gt 0) {
-        [void]$AllProcessedDiscoveredFiles.AddRange($AllDiscoveredFiles)
-    }
-    if ($AllDiscoveredFolders.Count -gt 0) {
-        [void]$AllProcessedDiscoveredFolders.AddRange($AllDiscoveredFolders)
-    }
+#     if ($AllDiscoveredFiles.Count -gt 0) {
+#         [void]$AllProcessedDiscoveredFiles.AddRange($AllDiscoveredFiles)
+#     }
+#     if ($AllDiscoveredFolders.Count -gt 0) {
+#         [void]$AllProcessedDiscoveredFolders.AddRange($AllDiscoveredFolders)
+#     }
 
-    Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
-    $AllProcessedDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
-    $AllProcessedDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
+#     Set-PrintAndLog -message "Writing out discovered source file data to $($RunSummary.OutputJsonFiles.SelectedFiles)...!" -color DarkMagenta
+#     $AllProcessedDiscoveredFiles | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFiles)"
+#     $AllProcessedDiscoveredFolders | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedFolders)"
 
-    Set-IncrementedState -newState "Convert Eligible Files - $BatchName"
-    $successConverted = @(ConvertDownloadedFiles -downloadedFiles $AllDiscoveredFiles -sofficePath $SofficePath)
+#     Set-IncrementedState -newState "Convert Eligible Files - $BatchName"
+#     $successConverted = @(ConvertDownloadedFiles -downloadedFiles $AllDiscoveredFiles -sofficePath $SofficePath)
 
-    Set-IncrementedState -newState "Read Now-Converted File Contents - $BatchName"
-    . .\jobs\Read-ConvertedContents.ps1
+#     Set-IncrementedState -newState "Read Now-Converted File Contents - $BatchName"
+#     . .\jobs\Read-ConvertedContents.ps1
 
-    Set-IncrementedState -newState "Create index-only file articles - $BatchName"
-    . .\jobs\Make-IndexOnlyArticles.ps1
+#     Set-IncrementedState -newState "Create index-only file articles - $BatchName"
+#     . .\jobs\Make-IndexOnlyArticles.ps1
 
-    Set-IncrementedState -newState "Determine Company Designations and Folder Structure - $BatchName"
-    . .\jobs\Make-ArticleStubs.ps1
+#     Set-IncrementedState -newState "Determine Company Designations and Folder Structure - $BatchName"
+#     . .\jobs\Make-ArticleStubs.ps1
 
-    Set-IncrementedState -newState "Populate initial data into articles - $BatchName"
-    . .\jobs\Populate-Articles.ps1
+#     Set-IncrementedState -newState "Populate initial data into articles - $BatchName"
+#     . .\jobs\Populate-Articles.ps1
 
-    Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu - $BatchName"
-    . .\jobs\Upload-Images.ps1
+#     Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu - $BatchName"
+#     . .\jobs\Upload-Images.ps1
 
-    Set-IncrementedState -newState "Relink Articles - $BatchName"
-    . .\jobs\Relink-Articles.ps1
+#     Set-IncrementedState -newState "Relink Articles - $BatchName"
+#     . .\jobs\Relink-Articles.ps1
 
-    if ($CleanupAfterBatch) {
-        foreach ($site in @($Sites)) {
-            $safeSiteName = ($site.name -replace '[^\w\-]', '_')
-            $siteRootPath = Join-Path $allSitesfolder $safeSiteName
-            Clear-SharePointBatchWorkingFiles -Files @(@($AllDiscoveredFiles) + @($successConverted)) -SiteRootPath $siteRootPath -TempPath $tmpfolder
-        }
-        [GC]::Collect()
-        [GC]::WaitForPendingFinalizers()
-    }
-}
+#     if ($CleanupAfterBatch) {
+#         foreach ($site in @($Sites)) {
+#             $safeSiteName = ($site.name -replace '[^\w\-]', '_')
+#             $siteRootPath = Join-Path $allSitesfolder $safeSiteName
+#             Clear-SharePointBatchWorkingFiles -Files @(@($AllDiscoveredFiles) + @($successConverted)) -SiteRootPath $siteRootPath -TempPath $tmpfolder
+#         }
+#         [GC]::Collect()
+#         [GC]::WaitForPendingFinalizers()
+#     }
+# }
 
-if ($RunSummary.SetupInfo.LowDiskMode) {
-    Set-PrintAndLog -message "Low-disk mode enabled. Processing and cleaning one top-level SharePoint drive item at a time." -Color Yellow
-    $siteIndex = 0
-    foreach ($site in $userSelectedSites) {
-        $siteIndex++
-        try {
-            $drives = @(Get-GraphSiteDrives -siteId $site.id)
-        } catch {
-            Set-PrintAndLog -message "Failed to enumerate drives for site $($site.name): $($_.Exception.Message)" -Color Red
-            $RunSummary.Errors.Add(@{
-                Site  = $site.name
-                Error = $_.Exception.Message
-                Step  = "Enumerate site drives"
-            })
-            continue
-        }
+# if ($RunSummary.SetupInfo.LowDiskMode) {
+#     Set-PrintAndLog -message "Low-disk mode enabled. Processing and cleaning one top-level SharePoint drive item at a time." -Color Yellow
+#     $siteIndex = 0
+#     foreach ($site in $userSelectedSites) {
+#         $siteIndex++
+#         try {
+#             $drives = @(Get-GraphSiteDrives -siteId $site.id)
+#         } catch {
+#             Set-PrintAndLog -message "Failed to enumerate drives for site $($site.name): $($_.Exception.Message)" -Color Red
+#             $RunSummary.Errors.Add(@{
+#                 Site  = $site.name
+#                 Error = $_.Exception.Message
+#                 Step  = "Enumerate site drives"
+#             })
+#             continue
+#         }
 
-        $driveIndex = 0
+#         $driveIndex = 0
 
-        foreach ($drive in $drives) {
-            $driveIndex++
-            try {
-                $rootItems = @(Get-GraphDriveChildItems -siteId $site.id -driveId $drive.id -folderId 'root')
-            } catch {
-                Set-PrintAndLog -message "Failed to enumerate root items for drive $($drive.name) in site $($site.name): $($_.Exception.Message)" -Color Red
-                $RunSummary.Errors.Add(@{
-                    Site  = $site.name
-                    Drive = $drive.name
-                    Error = $_.Exception.Message
-                    Step  = "Enumerate drive root items"
-                })
-                continue
-            }
+#         foreach ($drive in $drives) {
+#             $driveIndex++
+#             try {
+#                 $rootItems = @(Get-GraphDriveChildItems -siteId $site.id -driveId $drive.id -folderId 'root')
+#             } catch {
+#                 Set-PrintAndLog -message "Failed to enumerate root items for drive $($drive.name) in site $($site.name): $($_.Exception.Message)" -Color Red
+#                 $RunSummary.Errors.Add(@{
+#                     Site  = $site.name
+#                     Drive = $drive.name
+#                     Error = $_.Exception.Message
+#                     Step  = "Enumerate drive root items"
+#                 })
+#                 continue
+#             }
 
-            if ($rootItems.Count -eq 0) {
-                Set-PrintAndLog -message "Skipping empty drive $($drive.name) for site $($site.name)." -Color DarkGray
-                continue
-            }
+#             if ($rootItems.Count -eq 0) {
+#                 Set-PrintAndLog -message "Skipping empty drive $($drive.name) for site $($site.name)." -Color DarkGray
+#                 continue
+#             }
 
-            $rootItemIndex = 0
-            foreach ($rootItem in $rootItems) {
-                $rootItemIndex++
-                Invoke-SharePointMigrationFileBatch `
-                    -Sites @($site) `
-                    -Drives @($drive) `
-                    -RootItems @($rootItem) `
-                    -BatchName "site $siteIndex/$($userSelectedSites.Count): $($site.name); drive $driveIndex/$($drives.Count): $($drive.name); item $rootItemIndex/$($rootItems.Count): $($rootItem.name)" `
-                    -SofficePath $sofficePath `
-                    -CleanupAfterBatch
-            }
-        }
-    }
-} else {
-    Invoke-SharePointMigrationFileBatch `
-        -Sites @($userSelectedSites) `
-        -BatchName "all selected sites" `
-        -SofficePath $sofficePath
-}
+#             $rootItemIndex = 0
+#             foreach ($rootItem in $rootItems) {
+#                 $rootItemIndex++
+#                 Invoke-SharePointMigrationFileBatch `
+#                     -Sites @($site) `
+#                     -Drives @($drive) `
+#                     -RootItems @($rootItem) `
+#                     -BatchName "site $siteIndex/$($userSelectedSites.Count): $($site.name); drive $driveIndex/$($drives.Count): $($drive.name); item $rootItemIndex/$($rootItems.Count): $($rootItem.name)" `
+#                     -SofficePath $sofficePath `
+#                     -CleanupAfterBatch
+#             }
+#         }
+#     }
+# } else {
+#     Invoke-SharePointMigrationFileBatch `
+#         -Sites @($userSelectedSites) `
+#         -BatchName "all selected sites" `
+#         -SofficePath $sofficePath
+# }
 
-Set-IncrementedState -newState "Complete Internalization of External Article Images"
-$HuduInternalizeExternalArticleImagesDryRun = $HuduInternalizeExternalArticleImagesDryRun ?? $false; $HuduInternalizeExternalArticleImagesUsePublicPhotos = $HuduInternalizeExternalArticleImagesUsePublicPhotos ?? $true; $HuduInternalizeExternalArticleImagesProbeDownloads = $HuduInternalizeExternalArticleImagesProbeDownloads ?? $true; $HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $HuduInternalizeExternalArticleImagesPreferExistingHuduImages ?? $true;
-$HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting ?? $false; $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources ?? $false;
-. .\jobs\Internalize-ExternalArticleImages.ps1
+# Set-IncrementedState -newState "Complete Internalization of External Article Images"
+# $HuduInternalizeExternalArticleImagesDryRun = $HuduInternalizeExternalArticleImagesDryRun ?? $false; $HuduInternalizeExternalArticleImagesUsePublicPhotos = $HuduInternalizeExternalArticleImagesUsePublicPhotos ?? $true; $HuduInternalizeExternalArticleImagesProbeDownloads = $HuduInternalizeExternalArticleImagesProbeDownloads ?? $true; $HuduInternalizeExternalArticleImagesPreferExistingHuduImages = $HuduInternalizeExternalArticleImagesPreferExistingHuduImages ?? $true;
+# $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting = $HuduInternalizeExternalArticleImagesRewriteUnexpectedLocalExisting ?? $false; $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources = $HuduInternalizeExternalArticleImagesScrubUnexpectedLocalSources ?? $false;
+# . .\jobs\Internalize-ExternalArticleImages.ps1
 
-##### Step 6, clean up vars, folders, appregistration and generate summary
-##
-# All set, clean up, and spit the facts, as the kids say.
-Set-IncrementedState -newState "Clean Up - AppRegistration"
-if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to remove the app registration used for this migration?") -eq "yes"){
-    Set-PrintAndLog -message "Removing App Registration and Service Principal... $(Remove-AppRegistrationAndSP -AppId $AppId)" -color Magenta
-}
-Set-IncrementedState -newState "Clean Up - vars"
-foreach ($varname in @("tenantId","clientId","scopes","HuduBaseUrl","HuduApiKey","SharePointHeaders","accessToken","tokenResult")) {
-    Set-PrintAndLog -message "Removing var $varname... $(remove-variable -name varname -Force -ErrorAction SilentlyContinue)"
-}
-Set-IncrementedState -newState "Clean Up - files"
-foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
-    Set-PrintAndLog -message "Clearing $folder..." -Color Magenta
+# ##### Step 6, clean up vars, folders, appregistration and generate summary
+# ##
+# # All set, clean up, and spit the facts, as the kids say.
+# Set-IncrementedState -newState "Clean Up - AppRegistration"
+# if ($(Select-ObjectFromList -objects @("yes","no") -message "Would you like to remove the app registration used for this migration?") -eq "yes"){
+#     Set-PrintAndLog -message "Removing App Registration and Service Principal... $(Remove-AppRegistrationAndSP -AppId $AppId)" -color Magenta
+# }
+# Set-IncrementedState -newState "Clean Up - vars"
+# foreach ($varname in @("tenantId","clientId","scopes","HuduBaseUrl","HuduApiKey","SharePointHeaders","accessToken","tokenResult")) {
+#     Set-PrintAndLog -message "Removing var $varname... $(remove-variable -name varname -Force -ErrorAction SilentlyContinue)"
+# }
+# Set-IncrementedState -newState "Clean Up - files"
+# foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
+#     Set-PrintAndLog -message "Clearing $folder..." -Color Magenta
 
-    try {
-        Get-ChildItem -Path $folder -File -Recurse -Force | Remove-Item -Force -ErrorAction Stop
-    } catch {
-        Set-PrintAndLog -message "Failed to clear $folder $($_.Exception.Message)" -Color Red
-        $RunSummary.Errors += @{
-            Folder = $folder
-            Error  = $_.Exception.Message
-        }
-    }
-}
+#     try {
+#         Get-ChildItem -Path $folder -File -Recurse -Force | Remove-Item -Force -ErrorAction Stop
+#     } catch {
+#         Set-PrintAndLog -message "Failed to clear $folder $($_.Exception.Message)" -Color Red
+#         $RunSummary.Errors += @{
+#             Folder = $folder
+#             Error  = $_.Exception.Message
+#         }
+#     }
+# }
 
-Set-IncrementedState -newState "Complete"
-Read-Host "Press Enter to Finish and Print Summary (available in )"
-$SummaryJson = $RunSummary | ConvertTo-Json -Depth 20
-$SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
-$SummaryJson -split "`n" | ForEach-Object {
-    $_ -replace '[\{\[]', '⤵' `
-       -replace '[\}\]]', '' `
-       -replace '",', '"' `
-       -replace '^', '  '
-}
-Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta
+# Set-IncrementedState -newState "Complete"
+# Read-Host "Press Enter to Finish and Print Summary (available in )"
+# $SummaryJson = $RunSummary | ConvertTo-Json -Depth 20
+# $SummaryJson | ConvertTo-Json -Depth 15 | Out-File "$($RunSummary.OutputJsonFiles.SummaryPath)"
+# $SummaryJson -split "`n" | ForEach-Object {
+#     $_ -replace '[\{\[]', '⤵' `
+#        -replace '[\}\]]', '' `
+#        -replace '",', '"' `
+#        -replace '^', '  '
+# }
+# Write-Host "$($RunSummary.CompletedStates.Count): $($RunSummary.State) in $($RunSummary.SetupInfo.RunDuration) with $($RunSummary.Errors.Count) errors and $($RunSummary.Warnings.Count) warnings" -ForegroundColor Magenta

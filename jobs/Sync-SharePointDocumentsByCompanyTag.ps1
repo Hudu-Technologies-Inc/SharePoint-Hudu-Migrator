@@ -54,6 +54,7 @@ param(
     [bool]$RefreshExistingContent = $false,
     [bool]$UploadSourceFile = $false,
     [bool]$SkipExistingInExpectedLocation = $true,
+    [bool]$UseHuduArticleIndex = $true,
     [bool]$ConvertCreatedArticles = $false,
 
     # Optional Hudu-only pre-pass. Matches tags in asset names to tags in company names and moves assets.
@@ -653,6 +654,9 @@ function Get-TaggedDocumentSyncAssetFieldBody {
     param($Asset)
 
     $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    $customFields = $asset.custom_fields ?? $asset.CustomFields
+    if ($customFields) { return @($customFields) }
+
     $fields = @($asset.fields ?? $asset.Fields)
     $fieldBody = [System.Collections.Generic.List[object]]::new()
 
@@ -718,6 +722,10 @@ function Set-TaggedDocumentSyncAssetCompany {
     $currentCompanyId = Get-TaggedDocumentSyncAssetCompanyId -Asset $assetObject
     if (-not $currentCompanyId) {
         throw "Asset $AssetId does not have a current company_id; cannot build the Hudu asset update path."
+    }
+
+    if (Get-Command Move-HuduAssetCompany -ErrorAction SilentlyContinue) {
+        return Move-HuduAssetCompany -Id $AssetId -SourceCompanyId ([int]$currentCompanyId) -DestCompanyId $CompanyId
     }
 
     $body = New-TaggedDocumentSyncAssetUpdateBody -Asset $assetObject -CompanyId $CompanyId
@@ -862,20 +870,84 @@ function Invoke-TaggedDocumentSyncAssetCompanyIndex {
     }
 }
 
+function ConvertTo-TaggedDocumentSyncArticleTitleKey {
+    param([string]$Title)
+
+    if ([string]::IsNullOrWhiteSpace($Title)) { return "" }
+    return $Title.Trim().ToLowerInvariant()
+}
+
+function New-TaggedDocumentSyncArticleTitleIndex {
+    if (-not (Get-Command Get-HuduArticles -ErrorAction SilentlyContinue)) {
+        throw "Get-HuduArticles is not available. Load the Hudu API module/auth before building the article index."
+    }
+
+    Write-TaggedDocumentSyncLog -Message "Building Hudu article title index." -Color DarkCyan
+
+    $index = @{}
+    $articles = @(Expand-TaggedDocumentSyncArticles -InputObject (Get-HuduArticles))
+    foreach ($article in $articles) {
+        $titleKey = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title (Get-TaggedDocumentSyncArticleName -Article $article)
+        if ([string]::IsNullOrWhiteSpace($titleKey)) { continue }
+        if (-not $index.ContainsKey($titleKey)) {
+            $index[$titleKey] = [System.Collections.Generic.List[object]]::new()
+        }
+        $index[$titleKey].Add($article)
+    }
+
+    Write-TaggedDocumentSyncLog -Message "Built Hudu article title index with $($index.Count) unique title(s) from $($articles.Count) article(s)." -Color DarkCyan
+    return $index
+}
+
+function Add-TaggedDocumentSyncArticleToTitleIndex {
+    param(
+        [hashtable]$ArticleIndex,
+        $Article
+    )
+
+    if (-not $ArticleIndex -or -not $Article) { return }
+
+    $titleKey = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title (Get-TaggedDocumentSyncArticleName -Article $Article)
+    if ([string]::IsNullOrWhiteSpace($titleKey)) { return }
+
+    if (-not $ArticleIndex.ContainsKey($titleKey)) {
+        $ArticleIndex[$titleKey] = [System.Collections.Generic.List[object]]::new()
+    }
+
+    $articleId = Get-TaggedDocumentSyncArticleId -Article $Article
+    if ($articleId) {
+        for ($i = 0; $i -lt $ArticleIndex[$titleKey].Count; $i++) {
+            $existingId = Get-TaggedDocumentSyncArticleId -Article $ArticleIndex[$titleKey][$i]
+            if ([string]$existingId -eq [string]$articleId) {
+                $ArticleIndex[$titleKey][$i] = $Article
+                return
+            }
+        }
+    }
+
+    $ArticleIndex[$titleKey].Add($Article)
+}
+
 function Find-TaggedDocumentSyncExistingArticle {
     param(
         [Parameter(Mandatory)] [string]$Title,
-        [Parameter(Mandatory)] [int]$TargetCompanyId
+        [Parameter(Mandatory)] [int]$TargetCompanyId,
+        [hashtable]$ArticleIndex
     )
 
     if (-not (Get-Command Get-HuduArticles -ErrorAction SilentlyContinue)) {
         throw "Get-HuduArticles is not available. Load the Hudu API module/auth before running this job."
     }
 
-    $articles = @(Expand-TaggedDocumentSyncArticles -InputObject (Get-HuduArticles -Name $Title))
-    $titleKey = $Title.Trim().ToLowerInvariant()
+    $titleKey = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title $Title
+    $articles = if ($ArticleIndex) {
+        if ($ArticleIndex.ContainsKey($titleKey)) { @($ArticleIndex[$titleKey]) } else { @() }
+    } else {
+        @(Expand-TaggedDocumentSyncArticles -InputObject (Get-HuduArticles -Name $Title))
+    }
+
     $exactMatches = @($articles | Where-Object {
-        (Get-TaggedDocumentSyncArticleName -Article $_).Trim().ToLowerInvariant() -eq $titleKey
+        (ConvertTo-TaggedDocumentSyncArticleTitleKey -Title (Get-TaggedDocumentSyncArticleName -Article $_)) -eq $titleKey
     })
 
     if ($exactMatches.Count -lt 1) {
@@ -1988,6 +2060,8 @@ if ($SkipSharePointDocumentSync) {
         AssetIndexFailed            = $assetIndexSummary.FailedAssets
         AssetIndexDuplicateTags     = $assetIndexSummary.DuplicateAssetTagSelections
         AssetIndexReportPath        = $assetIndexSummary.AssetIndexReportPath
+        ArticleIndexEnabled         = $UseHuduArticleIndex
+        ArticleIndexTitles          = 0
     }
 
     Write-TaggedDocumentSyncLog -Message "Tagged asset indexing complete: processed=$($assetIndexSummary.ProcessedAssets), moved=$($assetIndexSummary.MovedAssets), skipped=$($assetIndexSummary.SkippedAssets), duplicateTagSelections=$($assetIndexSummary.DuplicateAssetTagSelections), failed=$($assetIndexSummary.FailedAssets). Report: $($assetIndexSummary.AssetIndexReportPath)" -Color Cyan
@@ -2011,9 +2085,10 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; UseArticleIndex=$UseHuduArticleIndex; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
+$articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
 
 $folderIndexByCompany = @{}
 $reportRows = [System.Collections.Generic.List[object]]::new()
@@ -2125,7 +2200,10 @@ foreach ($drive in @($drives)) {
             }
 
             $content = New-TaggedDocumentSyncArticleBody -DriveItem $item -Site $site -Drive $drive -FolderPath $entry.FolderPath
-            $existingResult = Find-TaggedDocumentSyncExistingArticle -Title $articleTitle -TargetCompanyId $destinationCompanyId
+            $existingResult = Find-TaggedDocumentSyncExistingArticle `
+                -Title $articleTitle `
+                -TargetCompanyId $destinationCompanyId `
+                -ArticleIndex $articleTitleIndex
             $existingArticle = $existingResult.Article
 
             if ($existingResult.Status -eq 'DuplicateExactTitle') {
@@ -2167,13 +2245,15 @@ foreach ($drive in @($drives)) {
                     continue
                 }
 
-                Set-TaggedDocumentSyncArticle `
+                $updatedArticle = Set-TaggedDocumentSyncArticle `
                     -ArticleId ([int]$existingArticleId) `
                     -CompanyId $destinationCompanyId `
                     -FolderId $destinationFolderId `
                     -Name $articleTitle `
                     -Content $content `
-                    -UpdateContent:$RefreshExistingContent | Out-Null
+                    -UpdateContent:$RefreshExistingContent
+
+                Add-TaggedDocumentSyncArticleToTitleIndex -ArticleIndex $articleTitleIndex -Article $updatedArticle
 
                 if ($UploadSourceFile) {
                     $downloadDirectory = Join-Path $resolvedWorkingDirectory (Get-TaggedDocumentSyncSafePathName -Name $destinationCompanyName -Fallback $destinationCompanyId)
@@ -2250,6 +2330,7 @@ foreach ($drive in @($drives)) {
 
             $createdArticleId = Get-TaggedDocumentSyncArticleId -Article $createdArticle
             $existingArticleId = $createdArticleId
+            Add-TaggedDocumentSyncArticleToTitleIndex -ArticleIndex $articleTitleIndex -Article $createdArticle
 
             if ($createdArticleId) {
                 $createUploadPaths = @()
@@ -2288,13 +2369,14 @@ foreach ($drive in @($drives)) {
                             }
                         }
                         $contentWithUploads = Update-TaggedDocumentSyncContentWithUploads -Content $createdContentResult.Content -Uploads $articleUploads -UploadPathByUrl $uploadPathByUrl
-                        Set-TaggedDocumentSyncArticle `
+                        $updatedCreatedArticle = Set-TaggedDocumentSyncArticle `
                             -ArticleId ([int]$createdArticleId) `
                             -CompanyId $destinationCompanyId `
                             -FolderId $destinationFolderId `
                             -Name $articleTitle `
                             -Content $contentWithUploads `
-                            -UpdateContent:$true | Out-Null
+                            -UpdateContent:$true
+                        Add-TaggedDocumentSyncArticleToTitleIndex -ArticleIndex $articleTitleIndex -Article $updatedCreatedArticle
                     }
                 }
             }
@@ -2404,6 +2486,8 @@ $summary = [PSCustomObject]@{
     AssetIndexFailed = $assetIndexSummary.FailedAssets
     AssetIndexDuplicateTags = $assetIndexSummary.DuplicateAssetTagSelections
     AssetIndexReportPath = if ($IndexTaggedHuduAssets) { $assetIndexSummary.AssetIndexReportPath } else { $null }
+    ArticleIndexEnabled = $UseHuduArticleIndex
+    ArticleIndexTitles = if ($articleTitleIndex) { $articleTitleIndex.Count } else { 0 }
 }
 
 Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan

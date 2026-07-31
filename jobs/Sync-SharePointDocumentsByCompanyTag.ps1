@@ -7,8 +7,7 @@ For each file in a specific SharePoint site drive, this job:
 - Uses the filename without extension as the Hudu article title.
 - Reads the trailing parenthetical/bracket tag from configured document library metadata fields
   such as "Client Name" / "ClientName", falling back to the filename when metadata is unavailable.
-- For example, "Jamieson Wellness Inc (JAMWELLIN)" => "JAMWELLIN" and
-  "Kchelpdesk [Intronis]" => "Intronis".
+
 - Matches that tag to the trailing parenthetical/bracket tag on Hudu company names.
 - When multiple tags match companies, uses the tag with the fewest company matches.
 - Preserves the SharePoint folder path under the matched company KB.
@@ -52,6 +51,8 @@ param(
     [bool]$RefreshExistingContent = $false,
     [bool]$UploadSourceFile = $false,
     [bool]$ConvertCreatedArticles = $false,
+
+    [bool]$LowDiskMode = [bool]($SharePointLowDiskMode ?? $RunSummary.SetupInfo.LowDiskMode ?? $true),
 
     # Optional. If omitted, the job tries the current $sofficePath, then the common LibreOffice path.
     [string]$SofficePath,
@@ -924,6 +925,146 @@ function Save-TaggedDocumentSyncDriveItem {
     return $targetPath
 }
 
+function Get-TaggedDocumentSyncUploadObject {
+    param($Upload)
+
+    return ($Upload.upload ?? $Upload.Upload ?? $Upload)
+}
+
+function Get-TaggedDocumentSyncUploadableType {
+    param($Upload)
+
+    $upload = Get-TaggedDocumentSyncUploadObject -Upload $Upload
+    return [string]($upload.uploadable_type ?? $upload.uploadableType ?? $upload.record_type ?? $upload.RecordType)
+}
+
+function Get-TaggedDocumentSyncUploadableId {
+    param($Upload)
+
+    $upload = Get-TaggedDocumentSyncUploadObject -Upload $Upload
+    return ($upload.uploadable_id ?? $upload.uploadableId ?? $upload.record_id ?? $upload.RecordId)
+}
+
+function Get-TaggedDocumentSyncUploadFileName {
+    param($Upload)
+
+    $upload = Get-TaggedDocumentSyncUploadObject -Upload $Upload
+    $rawName = [string](
+        $upload.filename ??
+        $upload.file_name ??
+        $upload.name ??
+        $upload.original_filename ??
+        $upload.OriginalFilename
+    )
+
+    if ([string]::IsNullOrWhiteSpace($rawName) -and $upload.url) {
+        try {
+            $rawName = [System.IO.Path]::GetFileName(([uri][string]$upload.url).AbsolutePath)
+        } catch {
+            $rawName = [System.IO.Path]::GetFileName([string]$upload.url)
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawName)) { return $null }
+
+    try {
+        $rawName = [System.Net.WebUtility]::UrlDecode($rawName)
+    } catch {}
+
+    return [System.IO.Path]::GetFileName($rawName)
+}
+
+function ConvertTo-TaggedDocumentSyncFileNameKey {
+    param([string]$FileName)
+
+    if ([string]::IsNullOrWhiteSpace($FileName)) { return "" }
+    $nameOnly = [System.IO.Path]::GetFileName($FileName)
+    return ConvertTo-TaggedDocumentSyncKey -Value $nameOnly
+}
+
+function Get-TaggedDocumentSyncUploadIndexKey {
+    param(
+        [Parameter(Mandatory)] [string]$UploadableType,
+        [Parameter(Mandatory)] $UploadableId,
+        [Parameter(Mandatory)] [string]$FileName
+    )
+
+    $typeKey = (ConvertTo-TaggedDocumentSyncKey -Value $UploadableType)
+    $idKey = [string]$UploadableId
+    $fileNameKey = ConvertTo-TaggedDocumentSyncFileNameKey -FileName $FileName
+
+    if ([string]::IsNullOrWhiteSpace($typeKey) -or [string]::IsNullOrWhiteSpace($idKey) -or [string]::IsNullOrWhiteSpace($fileNameKey)) {
+        return $null
+    }
+
+    return "$typeKey|$idKey|$fileNameKey"
+}
+
+function Add-TaggedDocumentSyncUploadToIndex {
+    param(
+        [Parameter(Mandatory)] $Upload,
+        [Parameter(Mandatory)] [hashtable]$UploadIndex,
+        [string]$UploadableType,
+        $UploadableId,
+        [string]$FileName
+    )
+
+    $upload = Get-TaggedDocumentSyncUploadObject -Upload $Upload
+    $resolvedType = if ([string]::IsNullOrWhiteSpace($UploadableType)) { Get-TaggedDocumentSyncUploadableType -Upload $upload } else { $UploadableType }
+    $resolvedId = if ($null -eq $UploadableId) { Get-TaggedDocumentSyncUploadableId -Upload $upload } else { $UploadableId }
+    $resolvedFileName = if ([string]::IsNullOrWhiteSpace($FileName)) { Get-TaggedDocumentSyncUploadFileName -Upload $upload } else { $FileName }
+    $key = Get-TaggedDocumentSyncUploadIndexKey -UploadableType $resolvedType -UploadableId $resolvedId -FileName $resolvedFileName
+
+    if ([string]::IsNullOrWhiteSpace($key)) { return }
+    if (-not $UploadIndex.ContainsKey($key)) {
+        $UploadIndex[$key] = [System.Collections.Generic.List[object]]::new()
+    }
+
+    $UploadIndex[$key].Add($upload)
+}
+
+function New-TaggedDocumentSyncUploadIndex {
+    $index = @{}
+
+    if (-not (Get-Command Get-HuduUploads -ErrorAction SilentlyContinue)) {
+        Write-TaggedDocumentSyncLog -Message "Get-HuduUploads is not available; upload idempotency will only apply within this run." -Color Yellow
+        return $index
+    }
+
+    try {
+        foreach ($upload in @(Get-HuduUploads)) {
+            $uploadObject = Get-TaggedDocumentSyncUploadObject -Upload $upload
+            $type = Get-TaggedDocumentSyncUploadableType -Upload $uploadObject
+            $id = Get-TaggedDocumentSyncUploadableId -Upload $uploadObject
+            $fileName = Get-TaggedDocumentSyncUploadFileName -Upload $uploadObject
+
+            if ([string]::IsNullOrWhiteSpace($type) -or [string]$type -ine 'article') { continue }
+            Add-TaggedDocumentSyncUploadToIndex -Upload $uploadObject -UploadIndex $index -UploadableType $type -UploadableId $id -FileName $fileName
+        }
+
+        Write-TaggedDocumentSyncLog -Message "Indexed existing Hudu uploads for idempotency: $($index.Count) article/filename key(s)." -Color DarkCyan
+    } catch {
+        Write-TaggedDocumentSyncLog -Message "Failed to index existing Hudu uploads; upload idempotency will only apply within this run. $($_.Exception.Message)" -Color Yellow
+    }
+
+    return $index
+}
+
+function Find-TaggedDocumentSyncExistingUpload {
+    param(
+        [Parameter(Mandatory)] [hashtable]$UploadIndex,
+        [Parameter(Mandatory)] [int]$ArticleId,
+        [Parameter(Mandatory)] [string]$FileName
+    )
+
+    $key = Get-TaggedDocumentSyncUploadIndexKey -UploadableType 'Article' -UploadableId $ArticleId -FileName $FileName
+    if ([string]::IsNullOrWhiteSpace($key) -or -not $UploadIndex.ContainsKey($key)) {
+        return $null
+    }
+
+    return @($UploadIndex[$key] | Select-Object -First 1)[0]
+}
+
 function Add-TaggedDocumentSyncSourceUpload {
     param(
         [Parameter(Mandatory)] [string]$FilePath,
@@ -979,7 +1120,13 @@ function Initialize-TaggedDocumentSyncConversionContext {
     }
 
     $setupDefaults = @{
-        IndexOnlyExtensions      = @()
+        IndexOnlyExtensions      = @(
+            if ($null -ne $SharePointIndexOnlyExtensions) {
+                @($SharePointIndexOnlyExtensions)
+            } else {
+                @()
+            }
+        )
         SourceFilesAsAttachments = $SourceFilesAsAttachments
         PdfUploadAsFile          = $true
         DisallowedForConvert     = [System.Collections.ArrayList]@()
@@ -993,6 +1140,9 @@ function Initialize-TaggedDocumentSyncConversionContext {
         }
     }
 
+    if ($null -ne $SharePointIndexOnlyExtensions) {
+        $RunSummary.SetupInfo.IndexOnlyExtensions = @($SharePointIndexOnlyExtensions)
+    }
     $RunSummary.SetupInfo.SourceFilesAsAttachments = $SourceFilesAsAttachments
 
     if (-not (Get-Variable -Name EmbeddableImageExtensions -ErrorAction SilentlyContinue)) {
@@ -1161,6 +1311,26 @@ function Get-TaggedDocumentSyncCreatedArticleContent {
         }
     }
 
+    $extension = [System.IO.Path]::GetExtension([string]$DriveItem.name).ToLowerInvariant()
+    $indexOnlyExtensions = @($RunSummary.SetupInfo.IndexOnlyExtensions) | ForEach-Object {
+        $configuredExtension = ([string]$_).Trim().ToLowerInvariant()
+        if ($configuredExtension -and -not $configuredExtension.StartsWith('.')) {
+            ".$configuredExtension"
+        } else {
+            $configuredExtension
+        }
+    }
+    if ($indexOnlyExtensions -contains $extension) {
+        return [PSCustomObject]@{
+            Content          = $fallbackContent
+            ContentMode      = 'IndexOnlyLink'
+            ConversionError  = "Extension '$extension' is configured as index-only/no-convert."
+            LocalPath        = $null
+            ConvertedDoc     = $null
+            Attachments      = @()
+        }
+    }
+
     $resolvedSofficePath = Resolve-TaggedDocumentSyncSofficePath -ConfiguredPath $ConfiguredSofficePath
     if ([string]::IsNullOrWhiteSpace($resolvedSofficePath)) {
         return [PSCustomObject]@{
@@ -1225,7 +1395,8 @@ function Get-TaggedDocumentSyncCreatedArticleContent {
 function Add-TaggedDocumentSyncArticleUploads {
     param(
         [Parameter(Mandatory)] [int]$ArticleId,
-        [string[]]$FilePaths = @()
+        [string[]]$FilePaths = @(),
+        [hashtable]$UploadIndex = @{}
     )
 
     $uploads = [System.Collections.Generic.List[object]]::new()
@@ -1237,6 +1408,16 @@ function Add-TaggedDocumentSyncArticleUploads {
 
         $resolvedPath = [System.IO.Path]::GetFullPath($filePath)
         if (-not $seen.Add($resolvedPath)) { continue }
+
+        $fileName = [System.IO.Path]::GetFileName($resolvedPath)
+        $existingUpload = Find-TaggedDocumentSyncExistingUpload -UploadIndex $UploadIndex -ArticleId $ArticleId -FileName $fileName
+        if ($existingUpload) {
+            $existingUpload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $resolvedPath -Force
+            $existingUpload | Add-Member -NotePropertyName UploadSyncStatus -NotePropertyValue 'Existing' -Force
+            $uploads.Add($existingUpload)
+            Write-TaggedDocumentSyncLog -Message "Reusing existing Hudu upload for article $ArticleId`: $fileName" -Color DarkCyan
+            continue
+        }
 
         $fileSize = (Get-Item -LiteralPath $resolvedPath).Length
         if ($fileSize -ge 100MB) {
@@ -1256,6 +1437,8 @@ function Add-TaggedDocumentSyncArticleUploads {
 
         if ($upload) {
             $upload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $resolvedPath -Force
+            $upload | Add-Member -NotePropertyName UploadSyncStatus -NotePropertyValue 'Created' -Force
+            Add-TaggedDocumentSyncUploadToIndex -Upload $upload -UploadIndex $UploadIndex -UploadableType 'Article' -UploadableId $ArticleId -FileName $fileName
             $uploads.Add($upload)
         }
     }
@@ -1266,21 +1449,147 @@ function Add-TaggedDocumentSyncArticleUploads {
 function Update-TaggedDocumentSyncContentWithUploads {
     param(
         [Parameter(Mandatory)] [string]$Content,
-        [object[]]$Uploads = @()
+        [object[]]$Uploads = @(),
+        [hashtable]$UploadPathByUrl = @{}
     )
 
     $updatedContent = $Content
+    $uploadByFileNameKey = @{}
+
     foreach ($upload in @($Uploads)) {
         if (-not $upload.url) { continue }
 
         $originalFilename = [string]($upload.OriginalFilename ?? $upload.name)
+        if ($upload.url -and $UploadPathByUrl.ContainsKey([string]$upload.url)) {
+            $originalFilename = [string]$UploadPathByUrl[[string]$upload.url]
+        }
         $fileNameOnly = if ($originalFilename) { [System.IO.Path]::GetFileName($originalFilename) } else { $null }
         if ([string]::IsNullOrWhiteSpace($fileNameOnly)) { continue }
 
+        $fileNameKey = ConvertTo-TaggedDocumentSyncFileNameKey -FileName $fileNameOnly
+        if (-not [string]::IsNullOrWhiteSpace($fileNameKey) -and -not $uploadByFileNameKey.ContainsKey($fileNameKey)) {
+            $uploadByFileNameKey[$fileNameKey] = $upload
+        }
+
         $updatedContent = $updatedContent -replace [regex]::Escape($fileNameOnly), [string]$upload.url
+        try {
+            $encodedFileName = [System.Uri]::EscapeDataString($fileNameOnly)
+            $updatedContent = $updatedContent -replace [regex]::Escape($encodedFileName), [string]$upload.url
+        } catch {}
+        try {
+            $htmlEncodedFileName = [System.Net.WebUtility]::HtmlEncode($fileNameOnly)
+            $updatedContent = $updatedContent -replace [regex]::Escape($htmlEncodedFileName), [string]$upload.url
+        } catch {}
+    }
+
+    if ($uploadByFileNameKey.Count -gt 0) {
+        $attributePattern = '(?<attr>\b(?:src|href)\s*=\s*)(?<quote>["''])(?<value>.*?)(\k<quote>)'
+        $updatedContent = [regex]::Replace($updatedContent, $attributePattern, {
+            param($match)
+
+            $value = $match.Groups['value'].Value
+            $decodedValue = try {
+                [System.Net.WebUtility]::UrlDecode($value)
+            } catch {
+                $value
+            }
+
+            $candidateName = $null
+            try {
+                $candidateName = [System.IO.Path]::GetFileName(([uri]$decodedValue).AbsolutePath)
+            } catch {
+                $candidateName = [System.IO.Path]::GetFileName($decodedValue)
+            }
+
+            $candidateKey = ConvertTo-TaggedDocumentSyncFileNameKey -FileName $candidateName
+            if ([string]::IsNullOrWhiteSpace($candidateKey) -or -not $uploadByFileNameKey.ContainsKey($candidateKey)) {
+                return $match.Value
+            }
+
+            $replacementUpload = $uploadByFileNameKey[$candidateKey]
+            $replacementUrl = [string]$replacementUpload.url
+            return "{0}{1}{2}{1}" -f $match.Groups['attr'].Value, $match.Groups['quote'].Value, $replacementUrl
+        }, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     }
 
     return $updatedContent
+}
+
+function Clear-TaggedDocumentSyncWorkingFiles {
+    param(
+        [object[]]$Docs = @(),
+        [string[]]$Paths = @(),
+        [Parameter(Mandatory)] [string]$WorkingRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($WorkingRoot) -or -not (Test-Path -LiteralPath $WorkingRoot -PathType Container)) {
+        return 0
+    }
+
+    $resolvedWorkingRoot = (Resolve-Path -LiteralPath $WorkingRoot).Path.TrimEnd('\')
+    $pathsToRemove = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($path in @($Paths)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$path)) {
+            [void]$pathsToRemove.Add([string]$path)
+        }
+    }
+
+    foreach ($doc in @($Docs)) {
+        if ($null -eq $doc) { continue }
+
+        foreach ($propertyName in @('LocalPath', 'NewPath')) {
+            if ($doc.PSObject.Properties[$propertyName] -and -not [string]::IsNullOrWhiteSpace([string]$doc.$propertyName)) {
+                [void]$pathsToRemove.Add([string]$doc.$propertyName)
+            }
+        }
+
+        foreach ($propertyName in @('ExternalFiles', 'Base64ImagesWritten', 'AllAttachments')) {
+            if (-not $doc.PSObject.Properties[$propertyName]) { continue }
+            foreach ($path in @($doc.$propertyName)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$path)) {
+                    [void]$pathsToRemove.Add([string]$path)
+                }
+            }
+        }
+    }
+
+    $removed = 0
+    foreach ($path in $pathsToRemove) {
+        try {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+
+            $resolvedPath = (Resolve-Path -LiteralPath $path).Path
+            $isInWorkingRoot = (
+                [string]::Equals($resolvedPath, $resolvedWorkingRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $resolvedPath.StartsWith("$resolvedWorkingRoot\", [System.StringComparison]::OrdinalIgnoreCase)
+            )
+            if (-not $isInWorkingRoot) {
+                Write-TaggedDocumentSyncLog -Message "Low-disk cleanup skipped file outside working directory: $resolvedPath" -Color DarkGray
+                continue
+            }
+
+            Remove-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+            $removed++
+
+            $parent = Split-Path -Parent $resolvedPath
+            while (
+                -not [string]::IsNullOrWhiteSpace($parent) -and
+                -not [string]::Equals($parent.TrimEnd('\'), $resolvedWorkingRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
+                $parent.StartsWith("$resolvedWorkingRoot\", [System.StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $parent -PathType Container)
+            ) {
+                $children = @(Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue)
+                if ($children.Count -gt 0) { break }
+                Remove-Item -LiteralPath $parent -Force -ErrorAction Stop
+                $parent = Split-Path -Parent $parent
+            }
+        } catch {
+            Write-TaggedDocumentSyncLog -Message "Low-disk cleanup failed for '$path': $($_.Exception.Message)" -Color Yellow
+        }
+    }
+
+    return $removed
 }
 
 $dryRun = -not $Apply
@@ -1327,13 +1636,15 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies @(Get-HuduCompanies)
 $duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($duplicateCompanyTags.Count -gt 0) {
     Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
 }
+
+$uploadIndex = New-TaggedDocumentSyncUploadIndex
 
 $folderIndexByCompany = @{}
 $reportRows = [System.Collections.Generic.List[object]]::new()
@@ -1344,9 +1655,11 @@ $updated = 0
 $skipped = 0
 $failed = 0
 $uploaded = 0
+$reusedUploads = 0
 $duplicateTagSelections = 0
 $convertedCreated = 0
 $conversionFallbacks = 0
+$cleanedWorkingFiles = 0
 
 foreach ($drive in @($drives)) {
     $driveLabel = [string]($drive.name ?? $drive.id)
@@ -1379,8 +1692,11 @@ foreach ($drive in @($drives)) {
         $uploadPath = $null
         $uploadUrl = $null
         $uploadedAttachmentCount = 0
+        $reusedAttachmentCount = 0
         $contentMode = $null
         $conversionError = $null
+        $createdContentResult = $null
+        $workingPathsToClean = [System.Collections.Generic.List[string]]::new()
         $companyMatchCount = 0
         $companyMatchNames = @()
 
@@ -1480,10 +1796,16 @@ foreach ($drive in @($drives)) {
                     }
                     $uploadPath = Save-TaggedDocumentSyncDriveItem -DriveItem $item -TargetDirectory $downloadDirectory
                     if ($uploadPath) {
-                        $upload = Add-TaggedDocumentSyncSourceUpload -FilePath $uploadPath -ArticleId ([int]$existingArticleId)
-                        $uploadUrl = $upload.url
-                        $uploaded++
-                        $uploadedAttachmentCount = 1
+                        $workingPathsToClean.Add($uploadPath)
+                        $articleUploads = @(Add-TaggedDocumentSyncArticleUploads -ArticleId ([int]$existingArticleId) -FilePaths @($uploadPath) -UploadIndex $uploadIndex)
+                        $uploadedAttachmentCount = @($articleUploads | Where-Object { $_.UploadSyncStatus -eq 'Created' }).Count
+                        $reusedAttachmentCount = @($articleUploads | Where-Object { $_.UploadSyncStatus -eq 'Existing' }).Count
+                        $uploaded += $uploadedAttachmentCount
+                        $reusedUploads += $reusedAttachmentCount
+                        $firstUpload = @($articleUploads | Where-Object { $_.url } | Select-Object -First 1)
+                        if ($firstUpload.Count -gt 0) {
+                            $uploadUrl = $firstUpload[0].url
+                        }
                     }
                 }
 
@@ -1553,13 +1875,16 @@ foreach ($drive in @($drives)) {
                     $uploadPath = Save-TaggedDocumentSyncDriveItem -DriveItem $item -TargetDirectory $downloadDirectory
                     if ($uploadPath) {
                         $createUploadPaths += @($uploadPath)
+                        $workingPathsToClean.Add($uploadPath)
                     }
                 }
 
                 if ($createUploadPaths.Count -gt 0) {
-                    $articleUploads = @(Add-TaggedDocumentSyncArticleUploads -ArticleId ([int]$createdArticleId) -FilePaths $createUploadPaths)
-                    $uploadedAttachmentCount = $articleUploads.Count
-                    $uploaded += $articleUploads.Count
+                    $articleUploads = @(Add-TaggedDocumentSyncArticleUploads -ArticleId ([int]$createdArticleId) -FilePaths $createUploadPaths -UploadIndex $uploadIndex)
+                    $uploadedAttachmentCount = @($articleUploads | Where-Object { $_.UploadSyncStatus -eq 'Created' }).Count
+                    $reusedAttachmentCount = @($articleUploads | Where-Object { $_.UploadSyncStatus -eq 'Existing' }).Count
+                    $uploaded += $uploadedAttachmentCount
+                    $reusedUploads += $reusedAttachmentCount
                     $firstUpload = @($articleUploads | Where-Object { $_.url } | Select-Object -First 1)
                     if ($firstUpload.Count -gt 0) {
                         $uploadUrl = $firstUpload[0].url
@@ -1567,7 +1892,16 @@ foreach ($drive in @($drives)) {
                     }
 
                     if ($articleUploads.Count -gt 0 -and $createdContentResult -and $createdContentResult.ContentMode -eq 'Converted') {
-                        $contentWithUploads = Update-TaggedDocumentSyncContentWithUploads -Content $createdContentResult.Content -Uploads $articleUploads
+                        $uploadPathByUrl = @{}
+                        for ($uploadIndexNumber = 0; $uploadIndexNumber -lt $articleUploads.Count; $uploadIndexNumber++) {
+                            $uploadEntry = $articleUploads[$uploadIndexNumber]
+                            if (-not $uploadEntry.url) { continue }
+                            $sourcePath = @($createUploadPaths)[$uploadIndexNumber]
+                            if (-not [string]::IsNullOrWhiteSpace([string]$sourcePath)) {
+                                $uploadPathByUrl[[string]$uploadEntry.url] = [string]$sourcePath
+                            }
+                        }
+                        $contentWithUploads = Update-TaggedDocumentSyncContentWithUploads -Content $createdContentResult.Content -Uploads $articleUploads -UploadPathByUrl $uploadPathByUrl
                         Set-TaggedDocumentSyncArticle `
                             -ArticleId ([int]$createdArticleId) `
                             -CompanyId $destinationCompanyId `
@@ -1592,6 +1926,32 @@ foreach ($drive in @($drives)) {
             if (-not $status) {
                 $status = 'Skipped'
                 $skipped++
+            }
+
+            if ($LowDiskMode -and -not $dryRun) {
+                $cleanupDocs = @()
+                if ($createdContentResult -and $createdContentResult.ConvertedDoc) {
+                    $cleanupDocs += @($createdContentResult.ConvertedDoc)
+                }
+                if ($createdContentResult -and $createdContentResult.LocalPath) {
+                    $workingPathsToClean.Add([string]$createdContentResult.LocalPath)
+                }
+                if ($createdContentResult -and $createdContentResult.Attachments) {
+                    foreach ($path in @($createdContentResult.Attachments)) {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$path)) {
+                            $workingPathsToClean.Add([string]$path)
+                        }
+                    }
+                }
+
+                $removedCount = Clear-TaggedDocumentSyncWorkingFiles `
+                    -Docs $cleanupDocs `
+                    -Paths $workingPathsToClean.ToArray() `
+                    -WorkingRoot $resolvedWorkingDirectory
+                if ($removedCount -gt 0) {
+                    $cleanedWorkingFiles += $removedCount
+                    Write-TaggedDocumentSyncLog -Message "Low-disk cleanup removed $removedCount working file(s) for '$articleTitle'." -Color DarkCyan
+                }
             }
 
             $reportRows.Add([PSCustomObject]@{
@@ -1622,6 +1982,7 @@ foreach ($drive in @($drives)) {
                 ContentMode              = $contentMode
                 ConversionError          = $conversionError
                 UploadedAttachmentCount  = $uploadedAttachmentCount
+                ReusedAttachmentCount    = $reusedAttachmentCount
                 SourceUploadPath         = $uploadPath
                 SourceUploadUrl          = $uploadUrl
                 Error                    = $errorMessage
@@ -1642,13 +2003,15 @@ $summary = [PSCustomObject]@{
     Moved         = $moved
     Updated       = $updated
     UploadedFiles = $uploaded
+    ReusedUploads = $reusedUploads
     ConvertedCreated = $convertedCreated
     ConversionFallbacks = $conversionFallbacks
+    CleanedWorkingFiles = $cleanedWorkingFiles
     Skipped       = $skipped
     Failed        = $failed
     DuplicateTagSelections = $duplicateTagSelections
 }
 
-Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed. Report: $resolvedReportPath" -Color Cyan
+Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed. Report: $resolvedReportPath" -Color Cyan
 
 $summary

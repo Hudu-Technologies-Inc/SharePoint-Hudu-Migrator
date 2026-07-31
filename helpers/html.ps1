@@ -1,6 +1,24 @@
 $SHAREPOINT_URL_DELIMITER = "<SHAREPOINT_WEBVIEW_DELIMITER>"
 $HUDU_LOCALATTACHMENT_DELIMITER = "<HUDU_LOCALATTACHMENT_DELIMITER>"
 
+function Write-SharePointGeneratedHtmlFile {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$Html
+    )
+
+    $directory = [System.IO.Path]::GetDirectoryName($Path)
+    if (-not [string]::IsNullOrWhiteSpace($directory) -and -not [System.IO.Directory]::Exists($directory)) {
+        [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+
+    [System.IO.File]::WriteAllText($Path, $Html, [System.Text.UTF8Encoding]::new($false))
+    return $Path
+}
+
 function Make-HiddenHTMLParaGraph {
   param (
     [string]$paragraphContent
@@ -84,8 +102,8 @@ function Get-GeneratedHTMLForImageFile {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
-    return $outputFile1
+    Write-SharePointGeneratedHtmlFile -Path $outputFile -Html $html
+    return $outputFile
 }
 function Get-GeneratedAttachmentLinkLargeDocs {
     param (
@@ -133,7 +151,7 @@ function Get-GeneratedAttachmentLinkLargeDocs {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Write-SharePointGeneratedHtmlFile -Path $outputFile -Html $html
     return $outputFile
 }
 
@@ -170,7 +188,7 @@ function Get-GeneratedUploadAsFileHTML {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Write-SharePointGeneratedHtmlFile -Path $outputFile -Html $html
     return $outputFile
 }
 
@@ -242,7 +260,7 @@ function Get-DisallowedExtensionGeneratedHTML {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Write-SharePointGeneratedHtmlFile -Path $outputFile -Html $html
     return $outputFile
 }
 

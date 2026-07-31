@@ -437,7 +437,11 @@ function Convert-PdfXmlToHtml {
     }
 
     $html += '</body></html>'
-    Set-Content -LiteralPath $OutputHtmlPath -Value ($html -join "`n") -Encoding UTF8
+    [System.IO.File]::WriteAllText(
+        $OutputHtmlPath,
+        ($html -join "`n"),
+        [System.Text.UTF8Encoding]::new($false)
+    )
     Set-PrintAndLog -message  "Generated slim HTML: $OutputHtmlPath" -Color Green
 }
 function Convert-PdfToHtml {

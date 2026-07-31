@@ -23,6 +23,9 @@ No Hudu changes are made unless -Apply is supplied.
 
 .EXAMPLE
 .\jobs\Sync-SharePointDocumentsByCompanyTag.ps1 -SiteUrl "https://contoso.sharepoint.com/sites/Clients" -CompanyTagFieldNames "ClientName", "Client Name" -MaxItems 25
+
+.EXAMPLE
+.\jobs\Sync-SharePointDocumentsByCompanyTag.ps1 -IndexTaggedHuduAssets $true -SkipSharePointDocumentSync -Apply
 #>
 
 param(
@@ -50,7 +53,13 @@ param(
     [bool]$CreateMissingArticles = $true,
     [bool]$RefreshExistingContent = $false,
     [bool]$UploadSourceFile = $false,
+    [bool]$SkipExistingInExpectedLocation = $true,
     [bool]$ConvertCreatedArticles = $false,
+
+    # Optional Hudu-only pre-pass. Matches tags in asset names to tags in company names and moves assets.
+    [bool]$IndexTaggedHuduAssets = $false,
+    [switch]$SkipSharePointDocumentSync,
+    [string]$AssetIndexReportPath = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'logs') 'hudu-tagged-asset-index.csv'),
 
     [bool]$LowDiskMode = [bool]($SharePointLowDiskMode ?? $RunSummary.SetupInfo.LowDiskMode ?? $true),
 
@@ -545,6 +554,312 @@ function Get-TaggedDocumentSyncArticleCompanyId {
 
     $article = Get-TaggedDocumentSyncArticleObject -Article $Article
     return ($article.company_id ?? $article.companyId ?? $article.CompanyId ?? $article.company.id ?? $article.Company.Id)
+}
+
+function Get-TaggedDocumentSyncArticleFolderId {
+    param($Article)
+
+    $article = Get-TaggedDocumentSyncArticleObject -Article $Article
+    return ($article.folder_id ?? $article.folderId ?? $article.FolderId ?? $article.folder.id ?? $article.Folder.Id)
+}
+
+function ConvertTo-TaggedDocumentSyncNullableIdKey {
+    param($Value)
+
+    if ($null -eq $Value) { return "" }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text) -or $text -eq '0') { return "" }
+    return $text
+}
+
+function Test-TaggedDocumentSyncArticleExpectedLocation {
+    param(
+        [Parameter(Mandatory)] $Article,
+        [Parameter(Mandatory)] [int]$CompanyId,
+        $FolderId
+    )
+
+    $articleCompanyId = Get-TaggedDocumentSyncArticleCompanyId -Article $Article
+    $articleFolderId = Get-TaggedDocumentSyncArticleFolderId -Article $Article
+
+    return (
+        [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $articleCompanyId) -eq [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $CompanyId) -and
+        [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $articleFolderId) -eq [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $FolderId)
+    )
+}
+
+function Get-TaggedDocumentSyncAssetObject {
+    param($Asset)
+
+    if ($Asset -and $Asset.PSObject.Properties['asset']) { return $Asset.asset }
+    if ($Asset -and $Asset.PSObject.Properties['Asset']) { return $Asset.Asset }
+    return $Asset
+}
+
+function Expand-TaggedDocumentSyncAssets {
+    param($InputObject)
+
+    if ($null -eq $InputObject) { return @() }
+
+    if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
+        $expanded = [System.Collections.Generic.List[object]]::new()
+        foreach ($item in @($InputObject)) {
+            foreach ($asset in @(Expand-TaggedDocumentSyncAssets -InputObject $item)) {
+                $expanded.Add($asset)
+            }
+        }
+        return @($expanded)
+    }
+
+    foreach ($propertyName in @('assets', 'Assets', 'asset', 'Asset', 'data', 'Data', 'value', 'Value')) {
+        $property = $InputObject.PSObject.Properties[$propertyName]
+        if ($property -and $null -ne $property.Value) {
+            return @(Expand-TaggedDocumentSyncAssets -InputObject $property.Value)
+        }
+    }
+
+    return @($InputObject)
+}
+
+function Get-TaggedDocumentSyncAssetName {
+    param($Asset)
+
+    $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    return [string]($asset.name ?? $asset.Name ?? $asset.title ?? $asset.Title)
+}
+
+function Get-TaggedDocumentSyncAssetId {
+    param($Asset)
+
+    $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    return ($asset.id ?? $asset.Id ?? $asset.asset_id ?? $asset.AssetId)
+}
+
+function Get-TaggedDocumentSyncAssetCompanyId {
+    param($Asset)
+
+    $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    return ($asset.company_id ?? $asset.companyId ?? $asset.CompanyId ?? $asset.company.id ?? $asset.Company.Id)
+}
+
+function Get-TaggedDocumentSyncAssetLayoutId {
+    param($Asset)
+
+    $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    return ($asset.asset_layout_id ?? $asset.assetLayoutId ?? $asset.AssetLayoutId ?? $asset.asset_layout.id ?? $asset.AssetLayout.Id)
+}
+
+function Get-TaggedDocumentSyncAssetFieldBody {
+    param($Asset)
+
+    $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    $fields = @($asset.fields ?? $asset.Fields)
+    $fieldBody = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($field in $fields) {
+        $label = [string]($field.label ?? $field.Label ?? $field.name ?? $field.Name)
+        if ([string]::IsNullOrWhiteSpace($label)) { continue }
+
+        $key = $label.Replace(' ', '_').ToLowerInvariant()
+        $value = $field.value ?? $field.Value
+        $fieldBody.Add([PSCustomObject]@{ $key = $value })
+    }
+
+    return @($fieldBody)
+}
+
+function New-TaggedDocumentSyncAssetUpdateBody {
+    param(
+        [Parameter(Mandatory)] $Asset,
+        [Parameter(Mandatory)] [int]$CompanyId
+    )
+
+    $asset = Get-TaggedDocumentSyncAssetObject -Asset $Asset
+    $bodyAsset = [ordered]@{
+        name                  = [string]($asset.name ?? $asset.Name)
+        asset_layout_id       = Get-TaggedDocumentSyncAssetLayoutId -Asset $asset
+        company_id            = $CompanyId
+        slug                  = ($asset.slug ?? $asset.Slug)
+        primary_serial        = ($asset.primary_serial ?? $asset.primarySerial ?? $asset.PrimarySerial)
+        primary_model         = ($asset.primary_model ?? $asset.primaryModel ?? $asset.PrimaryModel)
+        primary_mail          = ($asset.primary_mail ?? $asset.primaryMail ?? $asset.PrimaryMail)
+        primary_manufacturer  = ($asset.primary_manufacturer ?? $asset.primaryManufacturer ?? $asset.PrimaryManufacturer)
+    }
+
+    foreach ($key in @($bodyAsset.Keys)) {
+        if ($null -eq $bodyAsset[$key] -or [string]::IsNullOrWhiteSpace([string]$bodyAsset[$key])) {
+            $bodyAsset.Remove($key)
+        }
+    }
+
+    $fieldBody = @(Get-TaggedDocumentSyncAssetFieldBody -Asset $asset)
+    if ($fieldBody.Count -gt 0) {
+        $bodyAsset['custom_fields'] = $fieldBody
+    }
+
+    return @{ asset = $bodyAsset } | ConvertTo-Json -Depth 20
+}
+
+function Set-TaggedDocumentSyncAssetCompany {
+    param(
+        [Parameter(Mandatory)] [int]$AssetId,
+        [Parameter(Mandatory)] [int]$CompanyId,
+        $Asset
+    )
+
+    $assetObject = $Asset
+    if (Get-Command Get-HuduAssets -ErrorAction SilentlyContinue) {
+        $refreshed = @(Expand-TaggedDocumentSyncAssets -InputObject (Get-HuduAssets -Id $AssetId) | Select-Object -First 1)
+        if ($refreshed.Count -gt 0) {
+            $assetObject = $refreshed[0]
+        }
+    }
+
+    $currentCompanyId = Get-TaggedDocumentSyncAssetCompanyId -Asset $assetObject
+    if (-not $currentCompanyId) {
+        throw "Asset $AssetId does not have a current company_id; cannot build the Hudu asset update path."
+    }
+
+    $body = New-TaggedDocumentSyncAssetUpdateBody -Asset $assetObject -CompanyId $CompanyId
+    $updated = Invoke-TaggedDocumentSyncHuduRequest `
+        -Method Put `
+        -Resource "/api/v1/companies/$currentCompanyId/assets/$AssetId" `
+        -Body $body
+
+    return ($updated.asset ?? $updated.Asset ?? $updated)
+}
+
+function Invoke-TaggedDocumentSyncAssetCompanyIndex {
+    param(
+        [Parameter(Mandatory)] [hashtable]$CompanyTagIndex,
+        [Parameter(Mandatory)] [bool]$Apply,
+        [Parameter(Mandatory)] [string]$ReportPath
+    )
+
+    if (-not (Get-Command Get-HuduAssets -ErrorAction SilentlyContinue)) {
+        throw "Get-HuduAssets is not available. Load the Hudu API module/auth before indexing assets."
+    }
+
+    $dryRun = -not $Apply
+    $assets = @(Expand-TaggedDocumentSyncAssets -InputObject (Get-HuduAssets))
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $processedAssets = 0
+    $movedAssets = 0
+    $skippedAssets = 0
+    $failedAssets = 0
+    $duplicateAssetTagSelections = 0
+
+    Write-TaggedDocumentSyncLog -Message "Indexing Hudu assets by company tag. Assets=$($assets.Count); DryRun=$dryRun." -Color Cyan
+
+    foreach ($asset in $assets) {
+        $processedAssets++
+        $assetId = Get-TaggedDocumentSyncAssetId -Asset $asset
+        $assetName = Get-TaggedDocumentSyncAssetName -Asset $asset
+        $currentCompanyId = Get-TaggedDocumentSyncAssetCompanyId -Asset $asset
+        $assetTags = @(Get-TaggedDocumentSyncTags -Value $assetName)
+        $candidateTags = @($assetTags | ForEach-Object { $_.Tag })
+        $selectedTag = $null
+        $destinationCompanyId = $null
+        $destinationCompanyName = $null
+        $companyMatchCount = 0
+        $companyMatchNames = @()
+        $action = $null
+        $status = $null
+        $errorMessage = $null
+
+        try {
+            $matchResult = Resolve-TaggedDocumentSyncCompanyMatchFromTags `
+                -TagSource ([PSCustomObject]@{
+                    Tag    = if ($assetTags.Count -gt 0) { $assetTags[0].Tag } else { $null }
+                    TagKey = if ($assetTags.Count -gt 0) { $assetTags[0].TagKey } else { $null }
+                    Tags   = $assetTags
+                }) `
+                -CompanyTagIndex $CompanyTagIndex
+
+            if ($matchResult.Status -eq 'NoDocumentTag') {
+                $status = 'SkippedNoAssetTag'
+                $action = 'SkippedNoAssetTag'
+                $skippedAssets++
+                continue
+            }
+
+            if ($matchResult.Status -eq 'NoMatchingCompanyTag') {
+                $status = 'SkippedNoMatchingCompanyTag'
+                $action = 'SkippedNoMatchingCompanyTag'
+                $skippedAssets++
+                continue
+            }
+
+            $selectedTag = $matchResult.SelectedTag.Tag
+            $companyMatches = @($matchResult.Matches)
+            $companyMatchCount = $companyMatches.Count
+            $companyMatchNames = @($companyMatches | ForEach-Object { $_.Name })
+            if ($companyMatchCount -gt 1) {
+                $duplicateAssetTagSelections++
+            }
+
+            $destinationCompany = $companyMatches[0]
+            $destinationCompanyId = [int]$destinationCompany.Id
+            $destinationCompanyName = [string]$destinationCompany.Name
+
+            if ([string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $currentCompanyId) -eq [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $destinationCompanyId)) {
+                $status = 'SkippedAlreadyInCompany'
+                $action = 'SkippedAlreadyInCompany'
+                $skippedAssets++
+                continue
+            }
+
+            if ($dryRun) {
+                $status = 'DryRun'
+                $action = 'WouldMoveAsset'
+                $movedAssets++
+                Write-TaggedDocumentSyncLog -Message "Would move asset '$assetName' to '$destinationCompanyName' by tag '$selectedTag'." -Color DarkCyan
+                continue
+            }
+
+            [void](Set-TaggedDocumentSyncAssetCompany -AssetId ([int]$assetId) -CompanyId $destinationCompanyId -Asset $asset)
+            $status = 'MovedAsset'
+            $action = 'MovedAsset'
+            $movedAssets++
+            Write-TaggedDocumentSyncLog -Message "Moved asset '$assetName' to '$destinationCompanyName' by tag '$selectedTag'." -Color Green
+        } catch {
+            $status = 'Failed'
+            $action = $action ?? 'FailedAssetIndex'
+            $errorMessage = $_.Exception.Message
+            $failedAssets++
+            Write-TaggedDocumentSyncLog -Message "Failed to index asset '$assetName': $errorMessage" -Color Red
+        } finally {
+            $rows.Add([PSCustomObject]@{
+                Status                 = $status
+                Action                 = $action
+                AssetId                = $assetId
+                AssetName              = $assetName
+                CurrentCompanyId       = $currentCompanyId
+                SelectedTag            = $selectedTag
+                CandidateAssetTags     = (@($candidateTags) -join '; ')
+                CompanyTagMatchCount   = $companyMatchCount
+                CompanyTagMatches      = (@($companyMatchNames) -join '; ')
+                DestinationCompanyId   = $destinationCompanyId
+                DestinationCompanyName = $destinationCompanyName
+                Error                  = $errorMessage
+            })
+        }
+    }
+
+    $assetReportDirectory = Split-Path -Parent $ReportPath
+    if (-not (Test-Path -LiteralPath $assetReportDirectory -PathType Container)) {
+        $null = New-Item -ItemType Directory -Path $assetReportDirectory -Force
+    }
+    $rows | Export-Csv -LiteralPath $ReportPath -NoTypeInformation -Encoding UTF8
+
+    [PSCustomObject]@{
+        ProcessedAssets              = $processedAssets
+        MovedAssets                  = $movedAssets
+        SkippedAssets                = $skippedAssets
+        FailedAssets                 = $failedAssets
+        DuplicateAssetTagSelections  = $duplicateAssetTagSelections
+        AssetIndexReportPath         = $ReportPath
+    }
 }
 
 function Find-TaggedDocumentSyncExistingArticle {
@@ -1606,6 +1921,12 @@ $resolvedReportPath = if ([System.IO.Path]::IsPathRooted($ReportPath)) {
     [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $ReportPath))
 }
 
+$resolvedAssetIndexReportPath = if ([System.IO.Path]::IsPathRooted($AssetIndexReportPath)) {
+    [System.IO.Path]::GetFullPath($AssetIndexReportPath)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $AssetIndexReportPath))
+}
+
 $reportDirectory = Split-Path -Parent $resolvedReportPath
 if (-not (Test-Path -LiteralPath $reportDirectory -PathType Container)) {
     $null = New-Item -ItemType Directory -Path $reportDirectory -Force
@@ -1617,6 +1938,60 @@ if ($UploadSourceFile -and -not (Test-Path -LiteralPath $resolvedWorkingDirector
 
 if (-not (Get-Command Get-HuduCompanies -ErrorAction SilentlyContinue)) {
     throw "Get-HuduCompanies is not available. Load the Hudu API module/auth before running this job."
+}
+
+$huduCompanies = @(Get-HuduCompanies)
+$companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies $huduCompanies
+$duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
+if ($duplicateCompanyTags.Count -gt 0) {
+    Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
+}
+
+$assetIndexSummary = [PSCustomObject]@{
+    ProcessedAssets             = 0
+    MovedAssets                 = 0
+    SkippedAssets               = 0
+    FailedAssets                = 0
+    DuplicateAssetTagSelections = 0
+    AssetIndexReportPath        = $resolvedAssetIndexReportPath
+}
+
+if ($IndexTaggedHuduAssets) {
+    $assetIndexSummary = Invoke-TaggedDocumentSyncAssetCompanyIndex `
+        -CompanyTagIndex $companyTagIndex `
+        -Apply:([bool]$Apply) `
+        -ReportPath $resolvedAssetIndexReportPath
+}
+
+if ($SkipSharePointDocumentSync) {
+    $summary = [PSCustomObject]@{
+        SiteName                    = $null
+        SiteId                      = $null
+        ReportPath                  = $null
+        DryRun                      = $dryRun
+        Processed                   = 0
+        Created                     = 0
+        Moved                       = 0
+        Updated                     = 0
+        UploadedFiles               = 0
+        ReusedUploads               = 0
+        ConvertedCreated            = 0
+        ConversionFallbacks         = 0
+        CleanedWorkingFiles         = 0
+        SkippedExpectedLocation     = 0
+        Skipped                     = 0
+        Failed                      = 0
+        DuplicateTagSelections      = 0
+        AssetIndexProcessed         = $assetIndexSummary.ProcessedAssets
+        AssetIndexMoved             = $assetIndexSummary.MovedAssets
+        AssetIndexSkipped           = $assetIndexSummary.SkippedAssets
+        AssetIndexFailed            = $assetIndexSummary.FailedAssets
+        AssetIndexDuplicateTags     = $assetIndexSummary.DuplicateAssetTagSelections
+        AssetIndexReportPath        = $assetIndexSummary.AssetIndexReportPath
+    }
+
+    Write-TaggedDocumentSyncLog -Message "Tagged asset indexing complete: processed=$($assetIndexSummary.ProcessedAssets), moved=$($assetIndexSummary.MovedAssets), skipped=$($assetIndexSummary.SkippedAssets), duplicateTagSelections=$($assetIndexSummary.DuplicateAssetTagSelections), failed=$($assetIndexSummary.FailedAssets). Report: $($assetIndexSummary.AssetIndexReportPath)" -Color Cyan
+    return $summary
 }
 
 $site = Resolve-TaggedDocumentSyncSite -GraphSiteId $SiteId -SharePointSiteUrl $SiteUrl
@@ -1636,13 +2011,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; LowDiskMode=$LowDiskMode." -Color Cyan
-
-$companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies @(Get-HuduCompanies)
-$duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
-if ($duplicateCompanyTags.Count -gt 0) {
-    Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
-}
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 
@@ -1660,6 +2029,7 @@ $duplicateTagSelections = 0
 $convertedCreated = 0
 $conversionFallbacks = 0
 $cleanedWorkingFiles = 0
+$skippedExpectedLocation = 0
 
 foreach ($drive in @($drives)) {
     $driveLabel = [string]($drive.name ?? $drive.id)
@@ -1686,6 +2056,7 @@ foreach ($drive in @($drives)) {
         $destinationFolderId = $null
         $existingArticleId = $null
         $existingArticleCompanyId = $null
+        $existingArticleFolderId = $null
         $action = $null
         $status = $null
         $errorMessage = $null
@@ -1766,10 +2137,25 @@ foreach ($drive in @($drives)) {
             if ($existingArticle) {
                 $existingArticleId = Get-TaggedDocumentSyncArticleId -Article $existingArticle
                 $existingArticleCompanyId = Get-TaggedDocumentSyncArticleCompanyId -Article $existingArticle
+                $existingArticleFolderId = Get-TaggedDocumentSyncArticleFolderId -Article $existingArticle
 
                 if (-not $MoveExistingArticles -and [string]$existingArticleCompanyId -ne [string]$destinationCompanyId) {
                     $status = 'SkippedExistingArticleMoveDisabled'
                     $skipped++
+                    continue
+                }
+
+                $alreadyInExpectedLocation = Test-TaggedDocumentSyncArticleExpectedLocation `
+                    -Article $existingArticle `
+                    -CompanyId $destinationCompanyId `
+                    -FolderId $destinationFolderId
+
+                if ($SkipExistingInExpectedLocation -and $alreadyInExpectedLocation -and -not $RefreshExistingContent) {
+                    $action = if ($dryRun) { 'WouldSkipAlreadyInExpectedLocation' } else { 'SkippedAlreadyInExpectedLocation' }
+                    $status = if ($dryRun) { 'DryRun' } else { 'SkippedAlreadyInExpectedLocation' }
+                    $skipped++
+                    $skippedExpectedLocation++
+                    Write-TaggedDocumentSyncLog -Message "Skipping already-positioned article: '$articleTitle' is already in '$destinationCompanyName' / '$(@($destinationPath) -join '\')'." -Color DarkGray
                     continue
                 }
 
@@ -1979,6 +2365,7 @@ foreach ($drive in @($drives)) {
                 DestinationFolderPath    = (@($destinationPath) -join '\')
                 ExistingArticleId        = $existingArticleId
                 ExistingArticleCompanyId = $existingArticleCompanyId
+                ExistingArticleFolderId  = $existingArticleFolderId
                 ContentMode              = $contentMode
                 ConversionError          = $conversionError
                 UploadedAttachmentCount  = $uploadedAttachmentCount
@@ -2007,11 +2394,18 @@ $summary = [PSCustomObject]@{
     ConvertedCreated = $convertedCreated
     ConversionFallbacks = $conversionFallbacks
     CleanedWorkingFiles = $cleanedWorkingFiles
+    SkippedExpectedLocation = $skippedExpectedLocation
     Skipped       = $skipped
     Failed        = $failed
     DuplicateTagSelections = $duplicateTagSelections
+    AssetIndexProcessed = $assetIndexSummary.ProcessedAssets
+    AssetIndexMoved = $assetIndexSummary.MovedAssets
+    AssetIndexSkipped = $assetIndexSummary.SkippedAssets
+    AssetIndexFailed = $assetIndexSummary.FailedAssets
+    AssetIndexDuplicateTags = $assetIndexSummary.DuplicateAssetTagSelections
+    AssetIndexReportPath = if ($IndexTaggedHuduAssets) { $assetIndexSummary.AssetIndexReportPath } else { $null }
 }
 
-Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed. Report: $resolvedReportPath" -Color Cyan
+Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
 
 $summary

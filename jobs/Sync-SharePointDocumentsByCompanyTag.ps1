@@ -62,6 +62,7 @@ param(
     [bool]$UploadSourceFile = $false,
     [bool]$SkipExistingInExpectedLocation = $true,
     [bool]$UseHuduArticleIndex = $true,
+    [bool]$SkipCreateWhenArticleTitleExistsAnywhere = $true,
     [bool]$ConvertCreatedArticles = $false,
 
     # Optional Hudu-only pre-pass. Matches tags in asset names to tags in company names and moves assets.
@@ -1166,7 +1167,24 @@ function ConvertTo-TaggedDocumentSyncArticleTitleKey {
     param([string]$Title)
 
     if ([string]::IsNullOrWhiteSpace($Title)) { return "" }
-    return $Title.Trim().ToLowerInvariant()
+    return ConvertTo-TaggedDocumentSyncKey -Value $Title
+}
+
+function Get-TaggedDocumentSyncArticleTitleKeys {
+    param([string]$Title)
+
+    $keys = [System.Collections.Generic.List[string]]::new()
+    foreach ($candidate in @(
+        $Title
+        ($Title -replace '^\s*\[(?<tag>[^\]]+)\]\s*-+\s*', '(${tag}) ')
+        ($Title -replace '^\s*\((?<tag>[^)]+)\)\s*-+\s*', '(${tag}) ')
+    )) {
+        $key = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title $candidate
+        if ([string]::IsNullOrWhiteSpace($key)) { continue }
+        if ($keys -notcontains $key) { $keys.Add($key) }
+    }
+
+    return @($keys)
 }
 
 function New-TaggedDocumentSyncArticleTitleIndex {
@@ -1179,12 +1197,13 @@ function New-TaggedDocumentSyncArticleTitleIndex {
     $index = @{}
     $articles = @(Expand-TaggedDocumentSyncArticles -InputObject (Get-HuduArticles))
     foreach ($article in $articles) {
-        $titleKey = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title (Get-TaggedDocumentSyncArticleName -Article $article)
-        if ([string]::IsNullOrWhiteSpace($titleKey)) { continue }
-        if (-not $index.ContainsKey($titleKey)) {
-            $index[$titleKey] = [System.Collections.Generic.List[object]]::new()
+        foreach ($titleKey in @(Get-TaggedDocumentSyncArticleTitleKeys -Title (Get-TaggedDocumentSyncArticleName -Article $article))) {
+            if ([string]::IsNullOrWhiteSpace($titleKey)) { continue }
+            if (-not $index.ContainsKey($titleKey)) {
+                $index[$titleKey] = [System.Collections.Generic.List[object]]::new()
+            }
+            $index[$titleKey].Add($article)
         }
-        $index[$titleKey].Add($article)
     }
 
     Write-TaggedDocumentSyncLog -Message "Built Hudu article title index with $($index.Count) unique title(s) from $($articles.Count) article(s)." -Color DarkCyan
@@ -1199,25 +1218,29 @@ function Add-TaggedDocumentSyncArticleToTitleIndex {
 
     if (-not $ArticleIndex -or -not $Article) { return }
 
-    $titleKey = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title (Get-TaggedDocumentSyncArticleName -Article $Article)
-    if ([string]::IsNullOrWhiteSpace($titleKey)) { return }
+    foreach ($titleKey in @(Get-TaggedDocumentSyncArticleTitleKeys -Title (Get-TaggedDocumentSyncArticleName -Article $Article))) {
+        if ([string]::IsNullOrWhiteSpace($titleKey)) { continue }
 
-    if (-not $ArticleIndex.ContainsKey($titleKey)) {
-        $ArticleIndex[$titleKey] = [System.Collections.Generic.List[object]]::new()
-    }
-
-    $articleId = Get-TaggedDocumentSyncArticleId -Article $Article
-    if ($articleId) {
-        for ($i = 0; $i -lt $ArticleIndex[$titleKey].Count; $i++) {
-            $existingId = Get-TaggedDocumentSyncArticleId -Article $ArticleIndex[$titleKey][$i]
-            if ([string]$existingId -eq [string]$articleId) {
-                $ArticleIndex[$titleKey][$i] = $Article
-                return
-            }
+        if (-not $ArticleIndex.ContainsKey($titleKey)) {
+            $ArticleIndex[$titleKey] = [System.Collections.Generic.List[object]]::new()
         }
-    }
 
-    $ArticleIndex[$titleKey].Add($Article)
+        $articleId = Get-TaggedDocumentSyncArticleId -Article $Article
+        if ($articleId) {
+            $replaced = $false
+            for ($i = 0; $i -lt $ArticleIndex[$titleKey].Count; $i++) {
+                $existingId = Get-TaggedDocumentSyncArticleId -Article $ArticleIndex[$titleKey][$i]
+                if ([string]$existingId -eq [string]$articleId) {
+                    $ArticleIndex[$titleKey][$i] = $Article
+                    $replaced = $true
+                    break
+                }
+            }
+            if ($replaced) { continue }
+        }
+
+        $ArticleIndex[$titleKey].Add($Article)
+    }
 }
 
 function Find-TaggedDocumentSyncExistingArticle {
@@ -1231,15 +1254,26 @@ function Find-TaggedDocumentSyncExistingArticle {
         throw "Get-HuduArticles is not available. Load the Hudu API module/auth before running this job."
     }
 
-    $titleKey = ConvertTo-TaggedDocumentSyncArticleTitleKey -Title $Title
     $articles = if ($ArticleIndex) {
-        if ($ArticleIndex.ContainsKey($titleKey)) { @($ArticleIndex[$titleKey]) } else { @() }
+        $seenIds = [System.Collections.Generic.HashSet[string]]::new()
+        @(
+            foreach ($titleKey in @(Get-TaggedDocumentSyncArticleTitleKeys -Title $Title)) {
+                if (-not $ArticleIndex.ContainsKey($titleKey)) { continue }
+                foreach ($article in @($ArticleIndex[$titleKey])) {
+                    $articleId = Get-TaggedDocumentSyncArticleId -Article $article
+                    $seenKey = if ($articleId) { [string]$articleId } else { [string]($article | ConvertTo-Json -Compress -Depth 5) }
+                    if ($seenIds.Add($seenKey)) { $article }
+                }
+            }
+        )
     } else {
         @(Expand-TaggedDocumentSyncArticles -InputObject (Get-HuduArticles -Name $Title))
     }
 
+    $titleKeys = @(Get-TaggedDocumentSyncArticleTitleKeys -Title $Title)
     $exactMatches = @($articles | Where-Object {
-        (ConvertTo-TaggedDocumentSyncArticleTitleKey -Title (Get-TaggedDocumentSyncArticleName -Article $_)) -eq $titleKey
+        $articleKeys = @(Get-TaggedDocumentSyncArticleTitleKeys -Title (Get-TaggedDocumentSyncArticleName -Article $_))
+        @($articleKeys | Where-Object { $titleKeys -contains $_ }).Count -gt 0
     })
 
     if ($exactMatches.Count -lt 1) {
@@ -1252,13 +1286,14 @@ function Find-TaggedDocumentSyncExistingArticle {
 
     $targetCompanyMatch = @($exactMatches | Where-Object {
         [string](Get-TaggedDocumentSyncArticleCompanyId -Article $_) -eq [string]$TargetCompanyId
-    } | Select-Object -First 1)
+    })
 
     if ($targetCompanyMatch.Count -gt 0) {
         return [PSCustomObject]@{
-            Status  = 'FoundInTargetCompany'
-            Article = $targetCompanyMatch[0]
+            Status  = if ($targetCompanyMatch.Count -gt 1) { 'DuplicateExactTitleInTargetCompany' } else { 'FoundInTargetCompany' }
+            Article = @($targetCompanyMatch | Select-Object -First 1)[0]
             Count   = $exactMatches.Count
+            TargetCount = $targetCompanyMatch.Count
         }
     }
 
@@ -1267,6 +1302,7 @@ function Find-TaggedDocumentSyncExistingArticle {
             Status  = 'FoundElsewhere'
             Article = $exactMatches[0]
             Count   = 1
+            TargetCount = 0
         }
     }
 
@@ -1274,6 +1310,7 @@ function Find-TaggedDocumentSyncExistingArticle {
         Status  = 'DuplicateExactTitle'
         Article = $null
         Count   = $exactMatches.Count
+        TargetCount = 0
     }
 }
 
@@ -2447,7 +2484,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; UseArticleIndex=$UseHuduArticleIndex; InferMetadataCompany=$InferCompanyFromMetadata; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 $articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
@@ -2514,6 +2551,9 @@ foreach ($drive in @($drives)) {
         $metadataCompanyConfidence = 0
         $metadataCompanyConfidenceGap = 0
         $metadataCompanyCandidates = @()
+        $existingArticleStatus = $null
+        $existingArticleMatchCount = 0
+        $existingArticleTargetCount = 0
 
         $destinationPath = [System.Collections.Generic.List[string]]::new()
         if (-not [string]::IsNullOrWhiteSpace($DestinationRootFolderName)) {
@@ -2600,8 +2640,17 @@ foreach ($drive in @($drives)) {
                 -TargetCompanyId $destinationCompanyId `
                 -ArticleIndex $articleTitleIndex
             $existingArticle = $existingResult.Article
+            $existingArticleStatus = $existingResult.Status
+            $existingArticleMatchCount = [int]$existingResult.Count
+            $existingArticleTargetCount = [int]($existingResult.TargetCount ?? 0)
 
             if ($existingResult.Status -eq 'DuplicateExactTitle') {
+                if ($SkipCreateWhenArticleTitleExistsAnywhere) {
+                    $status = 'SkippedExistingArticleTitleElsewhere'
+                    $skipped++
+                    continue
+                }
+
                 $status = 'SkippedDuplicateExactArticleTitle'
                 $skipped++
                 continue
@@ -2612,6 +2661,12 @@ foreach ($drive in @($drives)) {
                 $companyAttributionMethod -eq 'MetadataCompanyName' -and
                 -not $MoveExistingArticlesForInferredCompany
             ) {
+                if ($SkipCreateWhenArticleTitleExistsAnywhere) {
+                    $status = 'SkippedExistingArticleTitleElsewhere'
+                    $skipped++
+                    continue
+                }
+
                 $existingArticle = $null
             }
 
@@ -2858,6 +2913,9 @@ foreach ($drive in @($drives)) {
                 ExistingArticleId        = $existingArticleId
                 ExistingArticleCompanyId = $existingArticleCompanyId
                 ExistingArticleFolderId  = $existingArticleFolderId
+                ExistingArticleStatus    = $existingArticleStatus
+                ExistingArticleMatchCount = $existingArticleMatchCount
+                ExistingArticleTargetCount = $existingArticleTargetCount
                 ContentMode              = $contentMode
                 ConversionError          = $conversionError
                 UploadedAttachmentCount  = $uploadedAttachmentCount
@@ -2899,6 +2957,7 @@ $summary = [PSCustomObject]@{
     AssetIndexReportPath = if ($IndexTaggedHuduAssets) { $assetIndexSummary.AssetIndexReportPath } else { $null }
     ArticleIndexEnabled = $UseHuduArticleIndex
     ArticleIndexTitles = if ($articleTitleIndex) { $articleTitleIndex.Count } else { 0 }
+    SkipCreateWhenArticleTitleExistsAnywhere = $SkipCreateWhenArticleTitleExistsAnywhere
 }
 
 Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, metadataCompanyInferred=$metadataCompanyInferred, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan

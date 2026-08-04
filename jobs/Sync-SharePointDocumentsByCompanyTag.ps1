@@ -42,6 +42,13 @@ param(
 
     # Document library metadata fields to use for company attribution before falling back to the filename tag.
     [string[]]$CompanyTagFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name'),
+    [string[]]$CompanyNameFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
+    [bool]$InferCompanyFromMetadata = $true,
+    [ValidateRange(0, 100)]
+    [double]$MetadataCompanyMinConfidence = 92,
+    [ValidateRange(0, 100)]
+    [double]$MetadataCompanyMinConfidenceGap = 8,
+    [bool]$MoveExistingArticlesForInferredCompany = $false,
 
     # Use when exporting multiple drives and you want "Documents\Folder\File" in Hudu.
     [switch]$IncludeDriveNameInFolderPath,
@@ -106,6 +113,107 @@ function ConvertTo-TaggedDocumentSyncKey {
     $text = $text -replace '&', ' and '
     $text = $text -replace '[^a-z0-9]+', ' '
     return ($text -replace '\s+', ' ').Trim()
+}
+
+function ConvertTo-TaggedDocumentSyncCompactKey {
+    param($Value)
+
+    if ($null -eq $Value) { return "" }
+    $text = ([string]$Value).Normalize([Text.NormalizationForm]::FormD).ToLowerInvariant()
+    $text = $text -replace '\p{Mn}', ''
+    try {
+        $text = [System.Web.HttpUtility]::HtmlDecode($text)
+    } catch {
+        $text = [System.Net.WebUtility]::HtmlDecode($text)
+    }
+    $text = $text -replace '&', 'and'
+    $text = $text -replace '[^a-z0-9]+', ''
+    return $text.Trim()
+}
+
+function Remove-TaggedDocumentSyncLegalSuffixes {
+    param($Value)
+
+    $text = ConvertTo-TaggedDocumentSyncKey -Value $Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return "" }
+
+    $suffixes = [System.Collections.Generic.HashSet[string]]::new([string[]]@(
+        'incorporated', 'corporation', 'corp', 'limited', 'ltd',
+        'inc', 'llc', 'llp', 'lp', 'plc', 'co', 'company'
+    ))
+
+    $tokens = @($text -split '\s+' | Where-Object { $_ -and -not $suffixes.Contains($_) })
+    return (@($tokens) -join ' ').Trim()
+}
+
+function Get-TaggedDocumentSyncSimilarityScore {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    $leftNormalized = ConvertTo-TaggedDocumentSyncKey -Value $Left
+    $rightNormalized = ConvertTo-TaggedDocumentSyncKey -Value $Right
+
+    if ([string]::IsNullOrWhiteSpace($leftNormalized) -or [string]::IsNullOrWhiteSpace($rightNormalized)) { return 0 }
+    if ($leftNormalized -eq $rightNormalized) { return 100 }
+
+    $leftCompact = ConvertTo-TaggedDocumentSyncCompactKey -Value $Left
+    $rightCompact = ConvertTo-TaggedDocumentSyncCompactKey -Value $Right
+    if ($leftCompact -and $rightCompact -and $leftCompact -eq $rightCompact) { return 100 }
+
+    $leftTokens = @($leftNormalized -split '\s+' | Where-Object { $_ -and $_.Length -gt 1 } | Sort-Object -Unique)
+    $rightTokens = @($rightNormalized -split '\s+' | Where-Object { $_ -and $_.Length -gt 1 } | Sort-Object -Unique)
+    $tokenScore = 0
+    if ($leftTokens.Count -gt 0 -and $rightTokens.Count -gt 0) {
+        $leftSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$leftTokens)
+        $rightSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$rightTokens)
+        $intersection = [System.Collections.Generic.HashSet[string]]::new($leftSet)
+        $intersection.IntersectWith($rightSet)
+        $union = [System.Collections.Generic.HashSet[string]]::new($leftSet)
+        $union.UnionWith($rightSet)
+        if ($union.Count -gt 0) {
+            $tokenScore = [Math]::Round(($intersection.Count / $union.Count) * 100, 2)
+        }
+    }
+
+    $maxLength = [Math]::Max($leftNormalized.Length, $rightNormalized.Length)
+    if ($maxLength -lt 1) { return $tokenScore }
+
+    $distance = Get-TaggedDocumentSyncLevenshteinDistance -Left $leftNormalized -Right $rightNormalized
+    $levenshteinScore = [Math]::Round((1 - ($distance / $maxLength)) * 100, 2)
+    return [Math]::Max($levenshteinScore, $tokenScore)
+}
+
+function Get-TaggedDocumentSyncLevenshteinDistance {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    if ($null -eq $Left) { $Left = "" }
+    if ($null -eq $Right) { $Right = "" }
+
+    $n = $Left.Length
+    $m = $Right.Length
+    if ($n -eq 0) { return $m }
+    if ($m -eq 0) { return $n }
+
+    $d = New-Object 'int[,]' ($n + 1), ($m + 1)
+    for ($i = 0; $i -le $n; $i++) { $d[$i, 0] = $i }
+    for ($j = 0; $j -le $m; $j++) { $d[0, $j] = $j }
+
+    for ($i = 1; $i -le $n; $i++) {
+        for ($j = 1; $j -le $m; $j++) {
+            $cost = if ($Left[$i - 1] -eq $Right[$j - 1]) { 0 } else { 1 }
+            $delete = $d[($i - 1), $j] + 1
+            $insert = $d[$i, ($j - 1)] + 1
+            $substitute = $d[($i - 1), ($j - 1)] + $cost
+            $d[$i, $j] = [Math]::Min([Math]::Min($delete, $insert), $substitute)
+        }
+    }
+
+    return $d[$n, $m]
 }
 
 function Get-TaggedDocumentSyncTrailingTag {
@@ -277,6 +385,190 @@ function Resolve-TaggedDocumentSyncCompanyTagSource {
         Source     = 'Filename'
         FieldName  = $null
         FieldValue = $ArticleTitle
+    }
+}
+
+function Get-TaggedDocumentSyncFieldText {
+    param(
+        $ListItemFields,
+        [string[]]$FieldNames = @()
+    )
+
+    if (-not $ListItemFields) { return $null }
+
+    $properties = @($ListItemFields.PSObject.Properties)
+    foreach ($configuredFieldName in @($FieldNames)) {
+        if ([string]::IsNullOrWhiteSpace($configuredFieldName)) { continue }
+
+        $matchingProperty = @(
+            $properties | Where-Object {
+                $_.Name -eq $configuredFieldName -or
+                (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $_.Name) -eq $configuredFieldName
+            } | Select-Object -First 1
+        )
+
+        if ($matchingProperty.Count -lt 1) {
+            $configuredKey = ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $configuredFieldName)
+            $matchingProperty = @(
+                $properties | Where-Object {
+                    (ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $_.Name)) -eq $configuredKey
+                } | Select-Object -First 1
+            )
+        }
+
+        if ($matchingProperty.Count -lt 1) { continue }
+
+        $valueText = ConvertTo-TaggedDocumentSyncAttributionText -Value $matchingProperty[0].Value
+        if ([string]::IsNullOrWhiteSpace($valueText)) { continue }
+
+        return [PSCustomObject]@{
+            FieldName  = $matchingProperty[0].Name
+            FieldValue = $valueText
+        }
+    }
+
+    return $null
+}
+
+function Remove-TaggedDocumentSyncTrailingGroups {
+    param($Value)
+
+    if ($null -eq $Value) { return "" }
+    $text = [string]$Value
+    while ($text -match '\s*(?:\([^()]*\)|\[[^\[\]]*\])\s*$') {
+        $text = ($text -replace '\s*(?:\([^()]*\)|\[[^\[\]]*\])\s*$', '').Trim()
+    }
+    return $text.Trim()
+}
+
+function Get-TaggedDocumentSyncCompanyNameAliases {
+    param($CompanyName)
+
+    $aliases = [System.Collections.Generic.List[string]]::new()
+    foreach ($candidate in @(
+        [string]$CompanyName
+        (Remove-TaggedDocumentSyncTrailingGroups -Value $CompanyName)
+        (Remove-TaggedDocumentSyncLegalSuffixes -Value $CompanyName)
+        (Remove-TaggedDocumentSyncLegalSuffixes -Value (Remove-TaggedDocumentSyncTrailingGroups -Value $CompanyName))
+    )) {
+        $normalized = ConvertTo-TaggedDocumentSyncKey -Value $candidate
+        if ([string]::IsNullOrWhiteSpace($normalized)) { continue }
+        if ($aliases -notcontains $normalized) { $aliases.Add($normalized) }
+    }
+
+    return @($aliases)
+}
+
+function New-TaggedDocumentSyncCompanyNameIndex {
+    param($Companies)
+
+    $entries = [System.Collections.Generic.List[object]]::new()
+    foreach ($company in @($Companies)) {
+        $companyId = $company.id ?? $company.Id
+        $companyName = [string]($company.name ?? $company.Name)
+        if (-not $companyId -or [string]::IsNullOrWhiteSpace($companyName)) { continue }
+
+        $entries.Add([PSCustomObject]@{
+            Id      = [int]$companyId
+            Name    = $companyName
+            Aliases = @(Get-TaggedDocumentSyncCompanyNameAliases -CompanyName $companyName)
+        })
+    }
+
+    return @($entries)
+}
+
+function Resolve-TaggedDocumentSyncCompanyMatchFromMetadata {
+    param(
+        [string]$ClientName,
+        $CompanyNameIndex,
+        [double]$MinConfidence = 92,
+        [double]$MinConfidenceGap = 8
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ClientName)) {
+        return [PSCustomObject]@{
+            Status        = 'NoMetadataCompanyName'
+            Match         = $null
+            Confidence    = 0
+            ConfidenceGap = 0
+            Candidates    = @()
+        }
+    }
+
+    $sourceAliases = @(
+        ConvertTo-TaggedDocumentSyncKey -Value $ClientName
+        Remove-TaggedDocumentSyncLegalSuffixes -Value $ClientName
+        ConvertTo-TaggedDocumentSyncKey -Value (Remove-TaggedDocumentSyncTrailingGroups -Value $ClientName)
+        Remove-TaggedDocumentSyncLegalSuffixes -Value (Remove-TaggedDocumentSyncTrailingGroups -Value $ClientName)
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
+
+    if ($sourceAliases.Count -lt 1) {
+        return [PSCustomObject]@{
+            Status        = 'NoMetadataCompanyName'
+            Match         = $null
+            Confidence    = 0
+            ConfidenceGap = 0
+            Candidates    = @()
+        }
+    }
+
+    $scored = @(
+        foreach ($company in @($CompanyNameIndex)) {
+            $bestScore = 0
+            $bestAlias = $null
+            foreach ($sourceAlias in $sourceAliases) {
+                foreach ($companyAlias in @($company.Aliases)) {
+                    $score = Get-TaggedDocumentSyncSimilarityScore -Left $sourceAlias -Right $companyAlias
+                    if ($score -gt $bestScore) {
+                        $bestScore = $score
+                        $bestAlias = $companyAlias
+                    }
+                }
+            }
+
+            if ($bestScore -gt 0) {
+                [PSCustomObject]@{
+                    Id         = [int]$company.Id
+                    Name       = [string]$company.Name
+                    Confidence = [double]$bestScore
+                    Alias      = $bestAlias
+                }
+            }
+        }
+    ) | Sort-Object Confidence, Name -Descending
+
+    $best = @($scored | Select-Object -First 1)
+    if ($best.Count -lt 1) {
+        return [PSCustomObject]@{
+            Status        = 'NoMatchingMetadataCompany'
+            Match         = $null
+            Confidence    = 0
+            ConfidenceGap = 0
+            Candidates    = @()
+        }
+    }
+
+    $winner = $best[0]
+    $second = @($scored | Select-Object -Skip 1 -First 1)
+    $gap = if ($second.Count -gt 0) { [double]$winner.Confidence - [double]$second[0].Confidence } else { [double]$winner.Confidence }
+
+    if ([double]$winner.Confidence -lt $MinConfidence -or [double]$gap -lt $MinConfidenceGap) {
+        return [PSCustomObject]@{
+            Status        = 'AmbiguousMetadataCompany'
+            Match         = $winner
+            Confidence    = [double]$winner.Confidence
+            ConfidenceGap = [double]$gap
+            Candidates    = @($scored | Select-Object -First 3)
+        }
+    }
+
+    return [PSCustomObject]@{
+        Status        = 'Matched'
+        Match         = $winner
+        Confidence    = [double]$winner.Confidence
+        ConfidenceGap = [double]$gap
+        Candidates    = @($scored | Select-Object -First 3)
     }
 }
 
@@ -2014,6 +2306,7 @@ if (-not (Get-Command Get-HuduCompanies -ErrorAction SilentlyContinue)) {
 
 $huduCompanies = @(Get-HuduCompanies)
 $companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies $huduCompanies
+$companyNameIndex = if ($InferCompanyFromMetadata) { New-TaggedDocumentSyncCompanyNameIndex -Companies $huduCompanies } else { @() }
 $duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($duplicateCompanyTags.Count -gt 0) {
     Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
@@ -2085,7 +2378,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; UseArticleIndex=$UseHuduArticleIndex; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; UseArticleIndex=$UseHuduArticleIndex; InferMetadataCompany=$InferCompanyFromMetadata; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 $articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
@@ -2105,6 +2398,7 @@ $convertedCreated = 0
 $conversionFallbacks = 0
 $cleanedWorkingFiles = 0
 $skippedExpectedLocation = 0
+$metadataCompanyInferred = 0
 
 foreach ($drive in @($drives)) {
     $driveLabel = [string]($drive.name ?? $drive.id)
@@ -2145,6 +2439,12 @@ foreach ($drive in @($drives)) {
         $workingPathsToClean = [System.Collections.Generic.List[string]]::new()
         $companyMatchCount = 0
         $companyMatchNames = @()
+        $companyAttributionMethod = $null
+        $metadataCompanyFieldName = $null
+        $metadataCompanyFieldValue = $null
+        $metadataCompanyConfidence = 0
+        $metadataCompanyConfidenceGap = 0
+        $metadataCompanyCandidates = @()
 
         $destinationPath = [System.Collections.Generic.List[string]]::new()
         if (-not [string]::IsNullOrWhiteSpace($DestinationRootFolderName)) {
@@ -2162,31 +2462,57 @@ foreach ($drive in @($drives)) {
                 -TagSource $tagSource `
                 -CompanyTagIndex $companyTagIndex
 
-            if ($companyMatchResult.Status -eq 'NoDocumentTag') {
-                $status = 'SkippedNoDocumentTag'
+            if ($companyMatchResult.Status -eq 'Matched') {
+                $companyAttributionMethod = 'Tag'
+                $documentTag = $companyMatchResult.SelectedTag.Tag
+                $documentTagKey = $companyMatchResult.SelectedTag.TagKey
+                $companyMatches = @($companyMatchResult.Matches)
+                $companyMatchCount = $companyMatches.Count
+                $companyMatchNames = @($companyMatches | ForEach-Object { $_.Name })
+                if ($companyMatches.Count -gt 1) {
+                    $duplicateTagSelections++
+                    Write-TaggedDocumentSyncLog -Message "Duplicate company tag '$documentTag' for '$articleTitle'; using first match '$($companyMatches[0].Name)'." -Color Yellow
+                }
+
+                $matchedCompany = $companyMatches[0]
+                $destinationCompanyId = [int]$matchedCompany.Id
+                $destinationCompanyName = [string]$matchedCompany.Name
+            } elseif ($InferCompanyFromMetadata) {
+                $metadataSource = Get-TaggedDocumentSyncFieldText -ListItemFields $listItemFields -FieldNames $CompanyNameFieldNames
+                $metadataCompanyFieldName = $metadataSource.FieldName
+                $metadataCompanyFieldValue = $metadataSource.FieldValue
+                $metadataMatchResult = Resolve-TaggedDocumentSyncCompanyMatchFromMetadata `
+                    -ClientName $metadataCompanyFieldValue `
+                    -CompanyNameIndex $companyNameIndex `
+                    -MinConfidence $MetadataCompanyMinConfidence `
+                    -MinConfidenceGap $MetadataCompanyMinConfidenceGap
+
+                $metadataCompanyConfidence = [double]$metadataMatchResult.Confidence
+                $metadataCompanyConfidenceGap = [double]$metadataMatchResult.ConfidenceGap
+                $metadataCompanyCandidates = @($metadataMatchResult.Candidates | ForEach-Object { "$($_.Name) ($($_.Confidence))" })
+
+                if ($metadataMatchResult.Status -ne 'Matched') {
+                    $status = if ($companyMatchResult.Status -eq 'NoDocumentTag') { 'SkippedNoDocumentTag' } else { 'SkippedNoMatchingCompanyTag' }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$metadataCompanyFieldValue)) {
+                        $status = "Skipped$($metadataMatchResult.Status)"
+                    }
+                    $skipped++
+                    continue
+                }
+
+                $companyAttributionMethod = 'MetadataCompanyName'
+                $metadataCompanyInferred++
+                $matchedCompany = $metadataMatchResult.Match
+                $destinationCompanyId = [int]$matchedCompany.Id
+                $destinationCompanyName = [string]$matchedCompany.Name
+                $companyMatchCount = 1
+                $companyMatchNames = @($destinationCompanyName)
+                Write-TaggedDocumentSyncLog -Message "Inferred company for '$articleTitle' from $metadataCompanyFieldName '$metadataCompanyFieldValue' => '$destinationCompanyName' ($metadataCompanyConfidence%, gap $metadataCompanyConfidenceGap)." -Color DarkCyan
+            } else {
+                $status = if ($companyMatchResult.Status -eq 'NoDocumentTag') { 'SkippedNoDocumentTag' } else { 'SkippedNoMatchingCompanyTag' }
                 $skipped++
                 continue
             }
-
-            if ($companyMatchResult.Status -eq 'NoMatchingCompanyTag') {
-                $status = 'SkippedNoMatchingCompanyTag'
-                $skipped++
-                continue
-            }
-
-            $documentTag = $companyMatchResult.SelectedTag.Tag
-            $documentTagKey = $companyMatchResult.SelectedTag.TagKey
-            $companyMatches = @($companyMatchResult.Matches)
-            $companyMatchCount = $companyMatches.Count
-            $companyMatchNames = @($companyMatches | ForEach-Object { $_.Name })
-            if ($companyMatches.Count -gt 1) {
-                $duplicateTagSelections++
-                Write-TaggedDocumentSyncLog -Message "Duplicate company tag '$documentTag' for '$articleTitle'; using first match '$($companyMatches[0].Name)'." -Color Yellow
-            }
-
-            $matchedCompany = $companyMatches[0]
-            $destinationCompanyId = [int]$matchedCompany.Id
-            $destinationCompanyName = [string]$matchedCompany.Name
 
             if ($destinationPath.Count -gt 0) {
                 $folderIndex = Get-TaggedDocumentSyncFolderIndexForCompany -CompanyId $destinationCompanyId -FolderIndexByCompany $folderIndexByCompany
@@ -2210,6 +2536,14 @@ foreach ($drive in @($drives)) {
                 $status = 'SkippedDuplicateExactArticleTitle'
                 $skipped++
                 continue
+            }
+
+            if (
+                $existingResult.Status -eq 'FoundElsewhere' -and
+                $companyAttributionMethod -eq 'MetadataCompanyName' -and
+                -not $MoveExistingArticlesForInferredCompany
+            ) {
+                $existingArticle = $null
             }
 
             if ($existingArticle) {
@@ -2439,6 +2773,12 @@ foreach ($drive in @($drives)) {
                 DocumentTagSource        = $tagSource.Source
                 DocumentTagFieldName     = $tagSource.FieldName
                 DocumentTagFieldValue    = $tagSource.FieldValue
+                CompanyAttributionMethod = $companyAttributionMethod
+                MetadataCompanyFieldName = $metadataCompanyFieldName
+                MetadataCompanyFieldValue = $metadataCompanyFieldValue
+                MetadataCompanyConfidence = $metadataCompanyConfidence
+                MetadataCompanyConfidenceGap = $metadataCompanyConfidenceGap
+                MetadataCompanyCandidates = (@($metadataCompanyCandidates) -join '; ')
                 CompanyTagMatchCount     = $companyMatchCount
                 CompanyTagMatches        = (@($companyMatchNames) -join '; ')
                 DestinationCompanyId     = $destinationCompanyId
@@ -2477,6 +2817,7 @@ $summary = [PSCustomObject]@{
     ConversionFallbacks = $conversionFallbacks
     CleanedWorkingFiles = $cleanedWorkingFiles
     SkippedExpectedLocation = $skippedExpectedLocation
+    MetadataCompanyInferred = $metadataCompanyInferred
     Skipped       = $skipped
     Failed        = $failed
     DuplicateTagSelections = $duplicateTagSelections
@@ -2490,6 +2831,6 @@ $summary = [PSCustomObject]@{
     ArticleIndexTitles = if ($articleTitleIndex) { $articleTitleIndex.Count } else { 0 }
 }
 
-Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
+Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, metadataCompanyInferred=$metadataCompanyInferred, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
 
 $summary

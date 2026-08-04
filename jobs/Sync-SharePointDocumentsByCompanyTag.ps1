@@ -1653,12 +1653,73 @@ function Get-TaggedDocumentSyncUploadFileName {
     return [System.IO.Path]::GetFileName($rawName)
 }
 
+function Get-TaggedDocumentSyncUploadUrl {
+    param(
+        $Upload,
+        [string]$OriginalFilename
+    )
+
+    $upload = Get-TaggedDocumentSyncUploadObject -Upload $Upload
+    foreach ($propertyName in @('url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+        $property = $upload.PSObject.Properties[$propertyName]
+        if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            return [string]$property.Value
+        }
+    }
+
+    $id = $upload.id ?? $upload.Id
+    if (-not $id) { return $null }
+
+    $extension = if (-not [string]::IsNullOrWhiteSpace($OriginalFilename)) {
+        [System.IO.Path]::GetExtension($OriginalFilename).TrimStart('.').ToLowerInvariant()
+    } else {
+        ""
+    }
+
+    if ($extension -in @('jpg', 'jpeg', 'png', 'webp')) {
+        return "/public_photo/$id"
+    }
+
+    return "/file/$id"
+}
+
 function ConvertTo-TaggedDocumentSyncFileNameKey {
     param([string]$FileName)
 
     if ([string]::IsNullOrWhiteSpace($FileName)) { return "" }
     $nameOnly = [System.IO.Path]::GetFileName($FileName)
+    try {
+        $nameOnly = [System.Net.WebUtility]::UrlDecode($nameOnly)
+    } catch {}
     return ConvertTo-TaggedDocumentSyncKey -Value $nameOnly
+}
+
+function Get-TaggedDocumentSyncNameFromUrlOrPath {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+
+    $candidate = [string]$Value
+    try {
+        $candidate = [System.Net.WebUtility]::HtmlDecode($candidate)
+    } catch {}
+    try {
+        $candidate = [System.Net.WebUtility]::UrlDecode($candidate)
+    } catch {}
+
+    try {
+        if ($candidate -match '^[a-z][a-z0-9+.-]*://') {
+            return [System.IO.Path]::GetFileName(([uri]$candidate).AbsolutePath)
+        }
+    } catch {}
+
+    $candidate = ($candidate -replace '\\', '/').TrimEnd('/')
+    $lastSlash = $candidate.LastIndexOf('/')
+    if ($lastSlash -ge 0 -and $lastSlash -lt ($candidate.Length - 1)) {
+        return $candidate.Substring($lastSlash + 1)
+    }
+
+    return [System.IO.Path]::GetFileName($candidate)
 }
 
 function Get-TaggedDocumentSyncUploadIndexKey {
@@ -2136,29 +2197,23 @@ function Update-TaggedDocumentSyncContentWithUploads {
     $uploadByFileNameKey = @{}
 
     foreach ($upload in @($Uploads)) {
-        if (-not $upload.url) { continue }
-
         $originalFilename = [string]($upload.OriginalFilename ?? $upload.name)
-        if ($upload.url -and $UploadPathByUrl.ContainsKey([string]$upload.url)) {
-            $originalFilename = [string]$UploadPathByUrl[[string]$upload.url]
+        $uploadUrl = Get-TaggedDocumentSyncUploadUrl -Upload $upload -OriginalFilename $originalFilename
+        if ([string]::IsNullOrWhiteSpace($uploadUrl)) { continue }
+
+        if ($UploadPathByUrl.ContainsKey([string]$uploadUrl)) {
+            $originalFilename = [string]$UploadPathByUrl[[string]$uploadUrl]
         }
         $fileNameOnly = if ($originalFilename) { [System.IO.Path]::GetFileName($originalFilename) } else { $null }
         if ([string]::IsNullOrWhiteSpace($fileNameOnly)) { continue }
 
         $fileNameKey = ConvertTo-TaggedDocumentSyncFileNameKey -FileName $fileNameOnly
         if (-not [string]::IsNullOrWhiteSpace($fileNameKey) -and -not $uploadByFileNameKey.ContainsKey($fileNameKey)) {
-            $uploadByFileNameKey[$fileNameKey] = $upload
+            $uploadByFileNameKey[$fileNameKey] = [PSCustomObject]@{
+                Upload = $upload
+                Url    = $uploadUrl
+            }
         }
-
-        $updatedContent = $updatedContent -replace [regex]::Escape($fileNameOnly), [string]$upload.url
-        try {
-            $encodedFileName = [System.Uri]::EscapeDataString($fileNameOnly)
-            $updatedContent = $updatedContent -replace [regex]::Escape($encodedFileName), [string]$upload.url
-        } catch {}
-        try {
-            $htmlEncodedFileName = [System.Net.WebUtility]::HtmlEncode($fileNameOnly)
-            $updatedContent = $updatedContent -replace [regex]::Escape($htmlEncodedFileName), [string]$upload.url
-        } catch {}
     }
 
     if ($uploadByFileNameKey.Count -gt 0) {
@@ -2173,12 +2228,7 @@ function Update-TaggedDocumentSyncContentWithUploads {
                 $value
             }
 
-            $candidateName = $null
-            try {
-                $candidateName = [System.IO.Path]::GetFileName(([uri]$decodedValue).AbsolutePath)
-            } catch {
-                $candidateName = [System.IO.Path]::GetFileName($decodedValue)
-            }
+            $candidateName = Get-TaggedDocumentSyncNameFromUrlOrPath -Value $decodedValue
 
             $candidateKey = ConvertTo-TaggedDocumentSyncFileNameKey -FileName $candidateName
             if ([string]::IsNullOrWhiteSpace($candidateKey) -or -not $uploadByFileNameKey.ContainsKey($candidateKey)) {
@@ -2186,9 +2236,28 @@ function Update-TaggedDocumentSyncContentWithUploads {
             }
 
             $replacementUpload = $uploadByFileNameKey[$candidateKey]
-            $replacementUrl = [string]$replacementUpload.url
+            $replacementUrl = [string]$replacementUpload.Url
             return "{0}{1}{2}{1}" -f $match.Groups['attr'].Value, $match.Groups['quote'].Value, $replacementUrl
         }, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+        foreach ($entry in $uploadByFileNameKey.GetEnumerator()) {
+            $replacementUrl = [string]$entry.Value.Url
+            $fileNameOnly = Get-TaggedDocumentSyncUploadFileName -Upload $entry.Value.Upload
+            if ([string]::IsNullOrWhiteSpace($fileNameOnly) -and $entry.Value.Upload.OriginalFilename) {
+                $fileNameOnly = [System.IO.Path]::GetFileName([string]$entry.Value.Upload.OriginalFilename)
+            }
+            if ([string]::IsNullOrWhiteSpace($fileNameOnly)) { continue }
+
+            $updatedContent = $updatedContent -replace [regex]::Escape($fileNameOnly), $replacementUrl
+            try {
+                $encodedFileName = [System.Uri]::EscapeDataString($fileNameOnly)
+                $updatedContent = $updatedContent -replace [regex]::Escape($encodedFileName), $replacementUrl
+            } catch {}
+            try {
+                $htmlEncodedFileName = [System.Net.WebUtility]::HtmlEncode($fileNameOnly)
+                $updatedContent = $updatedContent -replace [regex]::Escape($htmlEncodedFileName), $replacementUrl
+            } catch {}
+        }
     }
 
     return $updatedContent
@@ -2602,9 +2671,9 @@ foreach ($drive in @($drives)) {
                         $reusedAttachmentCount = @($articleUploads | Where-Object { $_.UploadSyncStatus -eq 'Existing' }).Count
                         $uploaded += $uploadedAttachmentCount
                         $reusedUploads += $reusedAttachmentCount
-                        $firstUpload = @($articleUploads | Where-Object { $_.url } | Select-Object -First 1)
+                        $firstUpload = @($articleUploads | Where-Object { Get-TaggedDocumentSyncUploadUrl -Upload $_ -OriginalFilename $_.OriginalFilename } | Select-Object -First 1)
                         if ($firstUpload.Count -gt 0) {
-                            $uploadUrl = $firstUpload[0].url
+                            $uploadUrl = Get-TaggedDocumentSyncUploadUrl -Upload $firstUpload[0] -OriginalFilename $firstUpload[0].OriginalFilename
                         }
                     }
                 }
@@ -2686,9 +2755,9 @@ foreach ($drive in @($drives)) {
                     $reusedAttachmentCount = @($articleUploads | Where-Object { $_.UploadSyncStatus -eq 'Existing' }).Count
                     $uploaded += $uploadedAttachmentCount
                     $reusedUploads += $reusedAttachmentCount
-                    $firstUpload = @($articleUploads | Where-Object { $_.url } | Select-Object -First 1)
+                    $firstUpload = @($articleUploads | Where-Object { Get-TaggedDocumentSyncUploadUrl -Upload $_ -OriginalFilename $_.OriginalFilename } | Select-Object -First 1)
                     if ($firstUpload.Count -gt 0) {
-                        $uploadUrl = $firstUpload[0].url
+                        $uploadUrl = Get-TaggedDocumentSyncUploadUrl -Upload $firstUpload[0] -OriginalFilename $firstUpload[0].OriginalFilename
                         $uploadPath = $firstUpload[0].OriginalFilename
                     }
 
@@ -2696,10 +2765,11 @@ foreach ($drive in @($drives)) {
                         $uploadPathByUrl = @{}
                         for ($uploadIndexNumber = 0; $uploadIndexNumber -lt $articleUploads.Count; $uploadIndexNumber++) {
                             $uploadEntry = $articleUploads[$uploadIndexNumber]
-                            if (-not $uploadEntry.url) { continue }
+                            $normalizedUploadUrl = Get-TaggedDocumentSyncUploadUrl -Upload $uploadEntry -OriginalFilename $uploadEntry.OriginalFilename
+                            if ([string]::IsNullOrWhiteSpace($normalizedUploadUrl)) { continue }
                             $sourcePath = @($createUploadPaths)[$uploadIndexNumber]
                             if (-not [string]::IsNullOrWhiteSpace([string]$sourcePath)) {
-                                $uploadPathByUrl[[string]$uploadEntry.url] = [string]$sourcePath
+                                $uploadPathByUrl[[string]$normalizedUploadUrl] = [string]$sourcePath
                             }
                         }
                         $contentWithUploads = Update-TaggedDocumentSyncContentWithUploads -Content $createdContentResult.Content -Uploads $articleUploads -UploadPathByUrl $uploadPathByUrl

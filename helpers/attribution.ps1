@@ -678,6 +678,8 @@ function Get-HuduCompanyAttributionCandidates {
         $companyNormalized = ConvertTo-AttributionNormalizedText $companyName
         $companyStripped = Remove-AttributionLegalSuffixes $companyName
         $clientCompact = ConvertTo-AttributionCompactKey $ClientEntry.ClientName
+        $clientRawNormalized = ConvertTo-AttributionNormalizedText $ClientEntry.RawTitle
+        $clientRawCompact = ConvertTo-AttributionCompactKey $ClientEntry.RawTitle
         $clientStrippedCompact = ConvertTo-AttributionCompactKey $ClientEntry.StrippedName
         $companyCompact = ConvertTo-AttributionCompactKey $companyName
         $companyStrippedCompact = ConvertTo-AttributionCompactKey $companyStripped
@@ -691,6 +693,22 @@ function Get-HuduCompanyAttributionCandidates {
         elseif ($clientCompact -and $clientCompact -eq $companyCompact) {
             $score = 100
             $reason = 'exact_compact_name'
+        }
+        elseif ($ClientEntry.NormalizedName -and $ClientEntry.NormalizedName.Length -ge 5 -and $companyNormalized.Contains([string]$ClientEntry.NormalizedName)) {
+            $score = 99
+            $reason = 'hudu_company_contains_client_name'
+        }
+        elseif ($clientRawNormalized -and $clientRawNormalized.Length -ge 5 -and $companyNormalized.Contains($clientRawNormalized)) {
+            $score = 99
+            $reason = 'hudu_company_contains_raw_title'
+        }
+        elseif ($clientCompact -and $clientCompact.Length -ge 6 -and $companyCompact.Contains($clientCompact)) {
+            $score = 98
+            $reason = 'hudu_company_contains_client_name_compact'
+        }
+        elseif ($clientRawCompact -and $clientRawCompact.Length -ge 6 -and $companyCompact.Contains($clientRawCompact)) {
+            $score = 98
+            $reason = 'hudu_company_contains_raw_title_compact'
         }
         elseif ($ClientEntry.ClientCode -and $ClientEntry.ClientCode.Length -ge 3 -and $companyNormalized -match "(^| )$([regex]::Escape((ConvertTo-AttributionNormalizedText $ClientEntry.ClientCode)))( |$)") {
             $score = 98
@@ -824,6 +842,49 @@ function New-HuduClientAttributionMapFromEntries {
                     if (-not $companyByToken.ContainsKey($token)) { continue }
 
                     foreach ($company in @($companyByToken[$token])) {
+                        $companyKey = [string]($company.Id ?? $company.Name)
+                        if (-not $candidateCompaniesById.Contains($companyKey)) {
+                            $candidateCompaniesById[$companyKey] = $company
+                        }
+                    }
+                }
+
+                $entryContainsNeedles = @(
+                    $entry.NormalizedName
+                    (ConvertTo-AttributionNormalizedText $entry.RawTitle)
+                ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and ([string]$_).Length -ge 5 } | Sort-Object -Unique
+                $entryCompactContainsNeedles = @(
+                    (ConvertTo-AttributionCompactKey $entry.ClientName)
+                    (ConvertTo-AttributionCompactKey $entry.RawTitle)
+                ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and ([string]$_).Length -ge 6 } | Sort-Object -Unique
+
+                if ($entryContainsNeedles.Count -gt 0 -or $entryCompactContainsNeedles.Count -gt 0) {
+                    foreach ($company in @($Companies)) {
+                        $companyName = [string]$company.Name
+                        if ([string]::IsNullOrWhiteSpace($companyName)) { continue }
+
+                        $companyNormalized = ConvertTo-AttributionNormalizedText $companyName
+                        $companyCompact = ConvertTo-AttributionCompactKey $companyName
+                        $containsMatch = $false
+
+                        foreach ($needle in @($entryContainsNeedles)) {
+                            if ($companyNormalized.Contains([string]$needle)) {
+                                $containsMatch = $true
+                                break
+                            }
+                        }
+
+                        if (-not $containsMatch) {
+                            foreach ($needle in @($entryCompactContainsNeedles)) {
+                                if ($companyCompact.Contains([string]$needle)) {
+                                    $containsMatch = $true
+                                    break
+                                }
+                            }
+                        }
+
+                        if (-not $containsMatch) { continue }
+
                         $companyKey = [string]($company.Id ?? $company.Name)
                         if (-not $candidateCompaniesById.Contains($companyKey)) {
                             $candidateCompaniesById[$companyKey] = $company

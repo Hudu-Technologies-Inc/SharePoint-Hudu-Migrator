@@ -46,6 +46,9 @@ param(
     [string[]]$CompanyNameFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
     [string[]]$CompanyLookupIdFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
     [string]$ClientAttributionMapPath = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'logs') 'client-attribution-map.json'),
+    [string[]]$ClientAttributionCsvPaths = @(),
+    [hashtable]$ClientCompanyOverrideMap = @{},
+    [string]$ClientCompanyOverridePath = "",
     [bool]$ResolveClientLookupIdsFromSharePointList = $true,
     [string[]]$ClientLookupListNames = @('Client List'),
     [bool]$InferCompanyFromMetadata = $true,
@@ -535,6 +538,105 @@ function Resolve-TaggedDocumentSyncCompanyFromClientMapEntry {
         Confidence = [double]($Entry.Confidence ?? 100)
         Alias      = [string]($Entry.ClientName ?? $Entry.RawTitle)
     }
+}
+
+function ConvertTo-TaggedDocumentSyncClientOverrideEntry {
+    param(
+        [Parameter(Mandatory)] [string]$LookupId,
+        $Value,
+        [string]$Source = 'override'
+    )
+
+    if ($null -eq $Value) { return $null }
+
+    $companyId = $null
+    $companyName = $null
+    $clientName = $null
+    $rawTitle = $null
+
+    if ($Value -is [string] -or $Value -is [ValueType]) {
+        $companyId = $Value
+    } else {
+        $companyId = $Value.HuduCompanyId ?? $Value.CompanyId ?? $Value.Id
+        $companyName = $Value.HuduCompanyName ?? $Value.CompanyName ?? $Value.Name
+        $clientName = $Value.ClientName ?? $Value.Client ?? $Value.SharePointClient
+        $rawTitle = $Value.RawTitle ?? $Value.SharePointTitle ?? $Value.Title
+    }
+
+    if ($null -eq $companyId -or [string]::IsNullOrWhiteSpace([string]$companyId)) { return $null }
+
+    [PSCustomObject]@{
+        SharePointItemId  = [string]$LookupId
+        AttributionSource = $Source
+        RawTitle          = if ($rawTitle) { [string]$rawTitle } else { $null }
+        ClientName        = if ($clientName) { [string]$clientName } else { $null }
+        HuduCompanyId     = [string]$companyId
+        HuduCompanyName   = if ($companyName) { [string]$companyName } else { $null }
+        Confidence        = 100
+        ConfidenceGap     = 100
+        MatchStatus       = 'Override'
+    }
+}
+
+function Import-TaggedDocumentSyncClientCompanyOverrideMap {
+    param(
+        [hashtable]$InlineMap = @{},
+        [string]$Path = ""
+    )
+
+    $index = @{}
+
+    if (-not [string]::IsNullOrWhiteSpace($Path)) {
+        $resolvedPath = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        } else {
+            [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $Path))
+        }
+
+        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
+            try {
+                $extension = [System.IO.Path]::GetExtension($resolvedPath).ToLowerInvariant()
+                $fileMap = if ($extension -eq '.json') {
+                    Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
+                } else {
+                    Import-PowerShellDataFile -LiteralPath $resolvedPath
+                }
+
+                $entries = if ($fileMap -is [hashtable] -or $fileMap -is [System.Collections.IDictionary]) {
+                    foreach ($key in @($fileMap.Keys)) {
+                        [PSCustomObject]@{
+                            Key   = [string]$key
+                            Value = $fileMap[$key]
+                        }
+                    }
+                } else {
+                    foreach ($property in @($fileMap.PSObject.Properties)) {
+                        [PSCustomObject]@{
+                            Key   = [string]$property.Name
+                            Value = $property.Value
+                        }
+                    }
+                }
+
+                foreach ($mapEntry in @($entries)) {
+                    $entry = ConvertTo-TaggedDocumentSyncClientOverrideEntry -LookupId ([string]$mapEntry.Key) -Value $mapEntry.Value -Source "override:$([System.IO.Path]::GetFileName($resolvedPath))"
+                    if ($entry) { $index[[string]$mapEntry.Key] = $entry }
+                }
+                Write-TaggedDocumentSyncLog -Message "Loaded $($index.Count) client company override(s): $resolvedPath" -Color DarkCyan
+            } catch {
+                Write-TaggedDocumentSyncLog -Message "Failed to load client company override map '$resolvedPath': $($_.Exception.Message)" -Color Yellow
+            }
+        } else {
+            Write-TaggedDocumentSyncLog -Message "Client company override map not found: $resolvedPath" -Color Yellow
+        }
+    }
+
+    foreach ($key in @($InlineMap.Keys)) {
+        $entry = ConvertTo-TaggedDocumentSyncClientOverrideEntry -LookupId ([string]$key) -Value $InlineMap[$key] -Source 'override:inline'
+        if ($entry) { $index[[string]$key] = $entry }
+    }
+
+    return $index
 }
 
 function Remove-TaggedDocumentSyncTrailingGroups {
@@ -2632,6 +2734,7 @@ foreach ($company in $huduCompanies) {
 $companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies $huduCompanies
 $companyNameIndex = if ($InferCompanyFromMetadata) { New-TaggedDocumentSyncCompanyNameIndex -Companies $huduCompanies } else { @() }
 $clientAttributionMapByLookupId = if ($InferCompanyFromMetadata) { Import-TaggedDocumentSyncClientAttributionMap -Path $ClientAttributionMapPath } else { @{} }
+$clientCompanyOverrideByLookupId = Import-TaggedDocumentSyncClientCompanyOverrideMap -InlineMap $ClientCompanyOverrideMap -Path $ClientCompanyOverridePath
 $duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($duplicateCompanyTags.Count -gt 0) {
     Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
@@ -2708,7 +2811,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; ResolveClientLookupList=$ResolveClientLookupIdsFromSharePointList; GlobalKbFallback=$FallbackToGlobalKbWhenMetadataCompanyUnmatched; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; OverrideClients=$($clientCompanyOverrideByLookupId.Count); ResolveClientLookupList=$ResolveClientLookupIdsFromSharePointList; GlobalKbFallback=$FallbackToGlobalKbWhenMetadataCompanyUnmatched; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 $articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
@@ -2836,7 +2939,12 @@ foreach ($drive in @($drives)) {
                 if ($lookupSource) {
                     $metadataLookupFieldName = $lookupSource.FieldName
                     $metadataLookupId = [string]$lookupSource.LookupId
-                    if ($clientAttributionMapByLookupId.ContainsKey($metadataLookupId)) {
+                    if ($clientCompanyOverrideByLookupId.ContainsKey($metadataLookupId)) {
+                        $clientMapEntry = $clientCompanyOverrideByLookupId[$metadataLookupId]
+                        $metadataMapMatchStatus = 'Override'
+                        $metadataCompanyFieldName = $metadataLookupFieldName
+                        $metadataCompanyFieldValue = [string]($clientMapEntry.ClientName ?? $clientMapEntry.RawTitle)
+                    } elseif ($clientAttributionMapByLookupId.ContainsKey($metadataLookupId)) {
                         $clientMapEntry = $clientAttributionMapByLookupId[$metadataLookupId]
                         $metadataMapMatchStatus = [string]($clientMapEntry.MatchStatus ?? 'Mapped')
                         $metadataCompanyFieldName = $metadataLookupFieldName
@@ -2848,7 +2956,7 @@ foreach ($drive in @($drives)) {
 
                 $clientMapCompany = Resolve-TaggedDocumentSyncCompanyFromClientMapEntry -Entry $clientMapEntry -CompanyById $companyById
                 if ($clientMapCompany) {
-                    $companyAttributionMethod = 'ClientAttributionMapLookupId'
+                    $companyAttributionMethod = if ($metadataMapMatchStatus -eq 'Override') { 'ClientCompanyOverrideLookupId' } else { 'ClientAttributionMapLookupId' }
                     $metadataCompanyInferred++
                     $matchedCompany = $clientMapCompany
                     $destinationCompanyId = [int]$matchedCompany.Id

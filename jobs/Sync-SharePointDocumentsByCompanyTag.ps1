@@ -52,6 +52,7 @@ param(
     [bool]$ResolveClientLookupIdsFromSharePointList = $true,
     [string[]]$ClientLookupListNames = @('Client List'),
     [bool]$InferCompanyFromMetadata = $true,
+    [bool]$PreferMetadataCompanyAttribution = $false,
     [ValidateRange(0, 100)]
     [double]$MetadataCompanyMinConfidence = 92,
     [ValidateRange(0, 100)]
@@ -448,6 +449,26 @@ function Get-TaggedDocumentSyncLookupFieldId {
 
     if (-not $ListItemFields) { return $null }
 
+    $candidates = @(Get-TaggedDocumentSyncLookupFieldCandidates -ListItemFields $ListItemFields -FieldNames $FieldNames)
+    if ($candidates.Count -lt 1) { return $null }
+
+    $configured = @($candidates | Where-Object { $_.ConfiguredMatch } | Select-Object -First 1)
+    if ($configured.Count -gt 0) { return $configured[0] }
+
+    $clientish = @($candidates | Where-Object { $_.Clientish } | Select-Object -First 1)
+    if ($clientish.Count -gt 0) { return $clientish[0] }
+
+    return $null
+}
+
+function Get-TaggedDocumentSyncLookupFieldCandidates {
+    param(
+        $ListItemFields,
+        [string[]]$FieldNames = @()
+    )
+
+    if (-not $ListItemFields) { return @() }
+
     $properties = @($ListItemFields.PSObject.Properties)
     $fieldKeys = @($FieldNames | ForEach-Object {
         ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $_)
@@ -455,25 +476,48 @@ function Get-TaggedDocumentSyncLookupFieldId {
 
     foreach ($property in $properties) {
         $propertyName = [string]$property.Name
-        if ($propertyName -notmatch 'LookupId$') { continue }
+        $lookupId = $null
+        $baseName = $null
 
-        $baseName = $propertyName -replace 'LookupId$', ''
+        if ($propertyName -match '(?i)LookupId$') {
+            $baseName = $propertyName -replace '(?i)LookupId$', ''
+            $lookupId = $property.Value
+        } elseif ($propertyName -match '(?i)Id$' -and $propertyName -notmatch '^(?i)(id|appauthor|appeditor|author|editor)$') {
+            $baseName = $propertyName -replace '(?i)Id$', ''
+            $decodedBaseKey = ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $baseName)
+            if ($decodedBaseKey -notmatch '\b(client|company|customer|account|tenant)\b') { continue }
+            $lookupId = $property.Value
+        } else {
+            $value = $property.Value
+            if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) { continue }
+            foreach ($lookupPropertyName in @('LookupId', 'lookupId', 'Id', 'id')) {
+                $lookupProperty = $value.PSObject.Properties[$lookupPropertyName]
+                if ($lookupProperty -and $null -ne $lookupProperty.Value) {
+                    $baseName = $propertyName
+                    $lookupId = $lookupProperty.Value
+                    break
+                }
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($baseName)) { continue }
         $baseKey = ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $baseName)
-        if ($fieldKeys.Count -gt 0 -and $fieldKeys -notcontains $baseKey) { continue }
+        $configuredMatch = $fieldKeys.Count -gt 0 -and $fieldKeys -contains $baseKey
+        $clientish = $baseKey -match '\b(client|company|customer|account|tenant)\b'
 
-        $lookupId = $property.Value
         if ($lookupId -is [System.Collections.IEnumerable] -and -not ($lookupId -is [string])) {
             $lookupId = @($lookupId | Select-Object -First 1)[0]
         }
         if ($null -eq $lookupId -or [string]::IsNullOrWhiteSpace([string]$lookupId)) { continue }
 
-        return [PSCustomObject]@{
-            FieldName = $propertyName
-            LookupId  = [string]$lookupId
+        [PSCustomObject]@{
+            FieldName       = $propertyName
+            BaseFieldName   = $baseName
+            LookupId        = [string]$lookupId
+            ConfiguredMatch = [bool]$configuredMatch
+            Clientish       = [bool]$clientish
         }
     }
-
-    return $null
 }
 
 function Import-TaggedDocumentSyncClientAttributionMap {
@@ -2861,7 +2905,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; OverrideClients=$($clientCompanyOverrideByLookupId.Count); ResolveClientLookupList=$ResolveClientLookupIdsFromSharePointList; GlobalKbFallback=$FallbackToGlobalKbWhenMetadataCompanyUnmatched; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; PreferMetadataCompany=$PreferMetadataCompanyAttribution; OverrideClients=$($clientCompanyOverrideByLookupId.Count); ResolveClientLookupList=$ResolveClientLookupIdsFromSharePointList; GlobalKbFallback=$FallbackToGlobalKbWhenMetadataCompanyUnmatched; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 $articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
@@ -2904,6 +2948,7 @@ foreach ($drive in @($drives)) {
         }
 
         $listItemFields = Get-TaggedDocumentSyncListItemFields -Site $site -Drive $drive -DriveItem $item
+        $metadataLookupCandidates = @(Get-TaggedDocumentSyncLookupFieldCandidates -ListItemFields $listItemFields -FieldNames $CompanyLookupIdFieldNames)
         $tagSource = Resolve-TaggedDocumentSyncCompanyTagSource `
             -ArticleTitle $articleTitle `
             -ListItemFields $listItemFields `
@@ -2939,6 +2984,8 @@ foreach ($drive in @($drives)) {
         $metadataLookupFieldName = $null
         $metadataLookupId = $null
         $metadataMapMatchStatus = $null
+        $clientMapEntry = $null
+        $preferredMetadataCompanyResolved = $false
         $existingArticleStatus = $null
         $existingArticleMatchCount = 0
         $existingArticleTargetCount = 0
@@ -2955,6 +3002,46 @@ foreach ($drive in @($drives)) {
         }
 
         try {
+            $lookupSource = @($metadataLookupCandidates | Where-Object { $_.ConfiguredMatch } | Select-Object -First 1)
+            if ($lookupSource.Count -lt 1) {
+                $lookupSource = @($metadataLookupCandidates | Where-Object { $_.Clientish } | Select-Object -First 1)
+            }
+            if ($lookupSource.Count -lt 1) { $lookupSource = $null } else { $lookupSource = $lookupSource[0] }
+            if ($lookupSource) {
+                $metadataLookupFieldName = $lookupSource.FieldName
+                $metadataLookupId = [string]$lookupSource.LookupId
+                if ($clientCompanyOverrideByLookupId.ContainsKey($metadataLookupId)) {
+                    $clientMapEntry = $clientCompanyOverrideByLookupId[$metadataLookupId]
+                    $metadataMapMatchStatus = 'Override'
+                    $metadataCompanyFieldName = $metadataLookupFieldName
+                    $metadataCompanyFieldValue = [string]($clientMapEntry.ClientName ?? $clientMapEntry.RawTitle)
+                } elseif ($clientAttributionMapByLookupId.ContainsKey($metadataLookupId)) {
+                    $clientMapEntry = $clientAttributionMapByLookupId[$metadataLookupId]
+                    $metadataMapMatchStatus = [string]($clientMapEntry.MatchStatus ?? 'Mapped')
+                    $metadataCompanyFieldName = $metadataLookupFieldName
+                    $metadataCompanyFieldValue = [string]($clientMapEntry.ClientName ?? $clientMapEntry.RawTitle)
+                } else {
+                    $metadataMapMatchStatus = 'LookupIdNotInClientAttributionMap'
+                }
+            }
+
+            if ($InferCompanyFromMetadata -and $PreferMetadataCompanyAttribution -and $clientMapEntry) {
+                $clientMapCompany = Resolve-TaggedDocumentSyncCompanyFromClientMapEntry -Entry $clientMapEntry -CompanyById $companyById
+                if ($clientMapCompany) {
+                    $companyAttributionMethod = if ($metadataMapMatchStatus -eq 'Override') { 'ClientCompanyOverrideLookupIdPreferred' } else { 'ClientAttributionMapLookupIdPreferred' }
+                    $metadataCompanyInferred++
+                    $matchedCompany = $clientMapCompany
+                    $destinationCompanyId = [int]$matchedCompany.Id
+                    $destinationCompanyName = [string]$matchedCompany.Name
+                    $metadataCompanyConfidence = [double]$matchedCompany.Confidence
+                    $metadataCompanyConfidenceGap = [double]($clientMapEntry.ConfidenceGap ?? 100)
+                    $companyMatchCount = 1
+                    $companyMatchNames = @($destinationCompanyName)
+                    $preferredMetadataCompanyResolved = $true
+                    Write-TaggedDocumentSyncLog -Message "Resolved preferred company for '$articleTitle' from $metadataLookupFieldName lookup id '$metadataLookupId' => '$destinationCompanyName'." -Color DarkCyan
+                }
+            }
+
             $companyMatchResult = if ($OnlyDocumentsWithoutFilenameTag -and $tagSource.Source -eq 'Filename') {
                 [PSCustomObject]@{
                     Status        = 'NoDocumentTag'
@@ -2968,7 +3055,9 @@ foreach ($drive in @($drives)) {
                 -CompanyTagIndex $companyTagIndex
             }
 
-            if ($companyMatchResult.Status -eq 'Matched') {
+            if ($preferredMetadataCompanyResolved) {
+                # Metadata map was explicitly requested as the source of truth for placement.
+            } elseif ($companyMatchResult.Status -eq 'Matched') {
                 $companyAttributionMethod = 'Tag'
                 $documentTag = $companyMatchResult.SelectedTag.Tag
                 $documentTagKey = $companyMatchResult.SelectedTag.TagKey
@@ -2984,26 +3073,6 @@ foreach ($drive in @($drives)) {
                 $destinationCompanyId = [int]$matchedCompany.Id
                 $destinationCompanyName = [string]$matchedCompany.Name
             } elseif ($InferCompanyFromMetadata) {
-                $clientMapEntry = $null
-                $lookupSource = Get-TaggedDocumentSyncLookupFieldId -ListItemFields $listItemFields -FieldNames $CompanyLookupIdFieldNames
-                if ($lookupSource) {
-                    $metadataLookupFieldName = $lookupSource.FieldName
-                    $metadataLookupId = [string]$lookupSource.LookupId
-                    if ($clientCompanyOverrideByLookupId.ContainsKey($metadataLookupId)) {
-                        $clientMapEntry = $clientCompanyOverrideByLookupId[$metadataLookupId]
-                        $metadataMapMatchStatus = 'Override'
-                        $metadataCompanyFieldName = $metadataLookupFieldName
-                        $metadataCompanyFieldValue = [string]($clientMapEntry.ClientName ?? $clientMapEntry.RawTitle)
-                    } elseif ($clientAttributionMapByLookupId.ContainsKey($metadataLookupId)) {
-                        $clientMapEntry = $clientAttributionMapByLookupId[$metadataLookupId]
-                        $metadataMapMatchStatus = [string]($clientMapEntry.MatchStatus ?? 'Mapped')
-                        $metadataCompanyFieldName = $metadataLookupFieldName
-                        $metadataCompanyFieldValue = [string]($clientMapEntry.ClientName ?? $clientMapEntry.RawTitle)
-                    } else {
-                        $metadataMapMatchStatus = 'LookupIdNotInClientAttributionMap'
-                    }
-                }
-
                 $clientMapCompany = Resolve-TaggedDocumentSyncCompanyFromClientMapEntry -Entry $clientMapEntry -CompanyById $companyById
                 if ($clientMapCompany) {
                     $companyAttributionMethod = if ($metadataMapMatchStatus -eq 'Override') { 'ClientCompanyOverrideLookupId' } else { 'ClientAttributionMapLookupId' }
@@ -3124,7 +3193,7 @@ foreach ($drive in @($drives)) {
 
             if (
                 $existingResult.Status -eq 'FoundElsewhere' -and
-                $companyAttributionMethod -in @('MetadataCompanyName', 'ClientAttributionMapLookupIdFuzzyName', 'GlobalKbFallback') -and
+                $companyAttributionMethod -in @('MetadataCompanyName', 'ClientAttributionMapLookupIdFuzzyName', 'ClientAttributionMapLookupIdPreferred', 'GlobalKbFallback') -and
                 -not $MoveExistingArticlesForInferredCompany
             ) {
                 if ($SkipCreateWhenArticleTitleExistsAnywhere) {
@@ -3372,6 +3441,7 @@ foreach ($drive in @($drives)) {
                 MetadataCompanyCandidates = (@($metadataCompanyCandidates) -join '; ')
                 MetadataLookupFieldName = $metadataLookupFieldName
                 MetadataLookupId        = $metadataLookupId
+                MetadataLookupCandidates = (@($metadataLookupCandidates | ForEach-Object { "$($_.FieldName)=$($_.LookupId)" }) -join '; ')
                 MetadataMapMatchStatus  = $metadataMapMatchStatus
                 CompanyTagMatchCount     = $companyMatchCount
                 CompanyTagMatches        = (@($companyMatchNames) -join '; ')

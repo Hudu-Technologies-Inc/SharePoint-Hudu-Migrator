@@ -37,12 +37,15 @@ param(
 
     [string[]]$DriveIds = @(),
     [string[]]$DriveNames = @(),
+    [switch]$OnlyDocumentsWithoutFilenameTag,
 
     [string]$DestinationRootFolderName = "",
 
     # Document library metadata fields to use for company attribution before falling back to the filename tag.
     [string[]]$CompanyTagFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name'),
     [string[]]$CompanyNameFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
+    [string[]]$CompanyLookupIdFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
+    [string]$ClientAttributionMapPath = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'logs') 'client-attribution-map.json'),
     [bool]$InferCompanyFromMetadata = $true,
     [ValidateRange(0, 100)]
     [double]$MetadataCompanyMinConfidence = 92,
@@ -429,6 +432,106 @@ function Get-TaggedDocumentSyncFieldText {
     }
 
     return $null
+}
+
+function Get-TaggedDocumentSyncLookupFieldId {
+    param(
+        $ListItemFields,
+        [string[]]$FieldNames = @()
+    )
+
+    if (-not $ListItemFields) { return $null }
+
+    $properties = @($ListItemFields.PSObject.Properties)
+    $fieldKeys = @($FieldNames | ForEach-Object {
+        ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $_)
+    }) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($property in $properties) {
+        $propertyName = [string]$property.Name
+        if ($propertyName -notmatch 'LookupId$') { continue }
+
+        $baseName = $propertyName -replace 'LookupId$', ''
+        $baseKey = ConvertTo-TaggedDocumentSyncKey -Value (ConvertFrom-TaggedDocumentSyncInternalFieldName -Name $baseName)
+        if ($fieldKeys.Count -gt 0 -and $fieldKeys -notcontains $baseKey) { continue }
+
+        $lookupId = $property.Value
+        if ($lookupId -is [System.Collections.IEnumerable] -and -not ($lookupId -is [string])) {
+            $lookupId = @($lookupId | Select-Object -First 1)[0]
+        }
+        if ($null -eq $lookupId -or [string]::IsNullOrWhiteSpace([string]$lookupId)) { continue }
+
+        return [PSCustomObject]@{
+            FieldName = $propertyName
+            LookupId  = [string]$lookupId
+        }
+    }
+
+    return $null
+}
+
+function Import-TaggedDocumentSyncClientAttributionMap {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return @{} }
+
+    $resolvedPath = if ([System.IO.Path]::IsPathRooted($Path)) {
+        [System.IO.Path]::GetFullPath($Path)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $Path))
+    }
+
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+        Write-TaggedDocumentSyncLog -Message "Client attribution map not found at '$resolvedPath'; lookup-id metadata attribution is disabled." -Color DarkGray
+        return @{}
+    }
+
+    try {
+        $entries = @(Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json)
+        $index = @{}
+        foreach ($entry in $entries) {
+            $itemId = $entry.SharePointItemId ?? $entry.GraphItemId ?? $entry.Id
+            if ($null -eq $itemId -or [string]::IsNullOrWhiteSpace([string]$itemId)) { continue }
+            $index[[string]$itemId] = $entry
+        }
+
+        Write-TaggedDocumentSyncLog -Message "Loaded client attribution map with $($index.Count) SharePoint lookup id(s): $resolvedPath" -Color DarkCyan
+        return $index
+    } catch {
+        Write-TaggedDocumentSyncLog -Message "Failed to load client attribution map '$resolvedPath': $($_.Exception.Message)" -Color Yellow
+        return @{}
+    }
+}
+
+function Resolve-TaggedDocumentSyncCompanyFromClientMapEntry {
+    param(
+        $Entry,
+        [hashtable]$CompanyById
+    )
+
+    if (-not $Entry) { return $null }
+
+    $companyId = $Entry.HuduCompanyId ?? $Entry.CompanyId
+    if (-not $companyId -or [string]::IsNullOrWhiteSpace([string]$companyId)) { return $null }
+
+    $companyKey = [string]$companyId
+    $company = if ($CompanyById.ContainsKey($companyKey)) { $CompanyById[$companyKey] } else { $null }
+    $companyName = if ($company) {
+        [string]($company.name ?? $company.Name)
+    } else {
+        [string]($Entry.HuduCompanyName ?? $Entry.CompanyName)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($companyName)) {
+        $companyName = "Hudu Company $companyId"
+    }
+
+    return [PSCustomObject]@{
+        Id         = [int]$companyId
+        Name       = $companyName
+        Confidence = [double]($Entry.Confidence ?? 100)
+        Alias      = [string]($Entry.ClientName ?? $Entry.RawTitle)
+    }
 }
 
 function Remove-TaggedDocumentSyncTrailingGroups {
@@ -2411,8 +2514,14 @@ if (-not (Get-Command Get-HuduCompanies -ErrorAction SilentlyContinue)) {
 }
 
 $huduCompanies = @(Get-HuduCompanies)
+$companyById = @{}
+foreach ($company in $huduCompanies) {
+    $companyId = $company.id ?? $company.Id
+    if ($companyId) { $companyById[[string]$companyId] = $company }
+}
 $companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies $huduCompanies
 $companyNameIndex = if ($InferCompanyFromMetadata) { New-TaggedDocumentSyncCompanyNameIndex -Companies $huduCompanies } else { @() }
+$clientAttributionMapByLookupId = if ($InferCompanyFromMetadata) { Import-TaggedDocumentSyncClientAttributionMap -Path $ClientAttributionMapPath } else { @{} }
 $duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($duplicateCompanyTags.Count -gt 0) {
     Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
@@ -2484,7 +2593,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 $articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
@@ -2505,6 +2614,7 @@ $conversionFallbacks = 0
 $cleanedWorkingFiles = 0
 $skippedExpectedLocation = 0
 $metadataCompanyInferred = 0
+$filteredFilenameTagged = 0
 
 foreach ($drive in @($drives)) {
     $driveLabel = [string]($drive.name ?? $drive.id)
@@ -2518,6 +2628,12 @@ foreach ($drive in @($drives)) {
         $processed++
         $item = $entry.Item
         $articleTitle = Get-TaggedDocumentSyncArticleTitle -DriveItem $item
+        $filenameTagCandidates = @(Get-TaggedDocumentSyncTags -Value $articleTitle)
+        if ($OnlyDocumentsWithoutFilenameTag -and $filenameTagCandidates.Count -gt 0) {
+            $filteredFilenameTagged++
+            continue
+        }
+
         $listItemFields = Get-TaggedDocumentSyncListItemFields -Site $site -Drive $drive -DriveItem $item
         $tagSource = Resolve-TaggedDocumentSyncCompanyTagSource `
             -ArticleTitle $articleTitle `
@@ -2551,6 +2667,9 @@ foreach ($drive in @($drives)) {
         $metadataCompanyConfidence = 0
         $metadataCompanyConfidenceGap = 0
         $metadataCompanyCandidates = @()
+        $metadataLookupFieldName = $null
+        $metadataLookupId = $null
+        $metadataMapMatchStatus = $null
         $existingArticleStatus = $null
         $existingArticleMatchCount = 0
         $existingArticleTargetCount = 0
@@ -2567,9 +2686,18 @@ foreach ($drive in @($drives)) {
         }
 
         try {
-            $companyMatchResult = Resolve-TaggedDocumentSyncCompanyMatchFromTags `
+            $companyMatchResult = if ($OnlyDocumentsWithoutFilenameTag -and $tagSource.Source -eq 'Filename') {
+                [PSCustomObject]@{
+                    Status        = 'NoDocumentTag'
+                    CandidateTags = @()
+                    SelectedTag   = $null
+                    Matches       = @()
+                }
+            } else {
+                Resolve-TaggedDocumentSyncCompanyMatchFromTags `
                 -TagSource $tagSource `
                 -CompanyTagIndex $companyTagIndex
+            }
 
             if ($companyMatchResult.Status -eq 'Matched') {
                 $companyAttributionMethod = 'Tag'
@@ -2587,36 +2715,72 @@ foreach ($drive in @($drives)) {
                 $destinationCompanyId = [int]$matchedCompany.Id
                 $destinationCompanyName = [string]$matchedCompany.Name
             } elseif ($InferCompanyFromMetadata) {
-                $metadataSource = Get-TaggedDocumentSyncFieldText -ListItemFields $listItemFields -FieldNames $CompanyNameFieldNames
-                $metadataCompanyFieldName = $metadataSource.FieldName
-                $metadataCompanyFieldValue = $metadataSource.FieldValue
-                $metadataMatchResult = Resolve-TaggedDocumentSyncCompanyMatchFromMetadata `
-                    -ClientName $metadataCompanyFieldValue `
-                    -CompanyNameIndex $companyNameIndex `
-                    -MinConfidence $MetadataCompanyMinConfidence `
-                    -MinConfidenceGap $MetadataCompanyMinConfidenceGap
-
-                $metadataCompanyConfidence = [double]$metadataMatchResult.Confidence
-                $metadataCompanyConfidenceGap = [double]$metadataMatchResult.ConfidenceGap
-                $metadataCompanyCandidates = @($metadataMatchResult.Candidates | ForEach-Object { "$($_.Name) ($($_.Confidence))" })
-
-                if ($metadataMatchResult.Status -ne 'Matched') {
-                    $status = if ($companyMatchResult.Status -eq 'NoDocumentTag') { 'SkippedNoDocumentTag' } else { 'SkippedNoMatchingCompanyTag' }
-                    if (-not [string]::IsNullOrWhiteSpace([string]$metadataCompanyFieldValue)) {
-                        $status = "Skipped$($metadataMatchResult.Status)"
+                $clientMapEntry = $null
+                $lookupSource = Get-TaggedDocumentSyncLookupFieldId -ListItemFields $listItemFields -FieldNames $CompanyLookupIdFieldNames
+                if ($lookupSource) {
+                    $metadataLookupFieldName = $lookupSource.FieldName
+                    $metadataLookupId = [string]$lookupSource.LookupId
+                    if ($clientAttributionMapByLookupId.ContainsKey($metadataLookupId)) {
+                        $clientMapEntry = $clientAttributionMapByLookupId[$metadataLookupId]
+                        $metadataMapMatchStatus = [string]($clientMapEntry.MatchStatus ?? 'Mapped')
+                        $metadataCompanyFieldName = $metadataLookupFieldName
+                        $metadataCompanyFieldValue = [string]($clientMapEntry.ClientName ?? $clientMapEntry.RawTitle)
+                    } else {
+                        $metadataMapMatchStatus = 'LookupIdNotInClientAttributionMap'
                     }
-                    $skipped++
-                    continue
                 }
 
-                $companyAttributionMethod = 'MetadataCompanyName'
-                $metadataCompanyInferred++
-                $matchedCompany = $metadataMatchResult.Match
-                $destinationCompanyId = [int]$matchedCompany.Id
-                $destinationCompanyName = [string]$matchedCompany.Name
-                $companyMatchCount = 1
-                $companyMatchNames = @($destinationCompanyName)
-                Write-TaggedDocumentSyncLog -Message "Inferred company for '$articleTitle' from $metadataCompanyFieldName '$metadataCompanyFieldValue' => '$destinationCompanyName' ($metadataCompanyConfidence%, gap $metadataCompanyConfidenceGap)." -Color DarkCyan
+                $clientMapCompany = Resolve-TaggedDocumentSyncCompanyFromClientMapEntry -Entry $clientMapEntry -CompanyById $companyById
+                if ($clientMapCompany) {
+                    $companyAttributionMethod = 'ClientAttributionMapLookupId'
+                    $metadataCompanyInferred++
+                    $matchedCompany = $clientMapCompany
+                    $destinationCompanyId = [int]$matchedCompany.Id
+                    $destinationCompanyName = [string]$matchedCompany.Name
+                    $metadataCompanyConfidence = [double]$matchedCompany.Confidence
+                    $metadataCompanyConfidenceGap = [double]($clientMapEntry.ConfidenceGap ?? 100)
+                    $companyMatchCount = 1
+                    $companyMatchNames = @($destinationCompanyName)
+                    Write-TaggedDocumentSyncLog -Message "Resolved company for '$articleTitle' from $metadataLookupFieldName lookup id '$metadataLookupId' => '$destinationCompanyName'." -Color DarkCyan
+                }
+
+                $metadataSource = Get-TaggedDocumentSyncFieldText -ListItemFields $listItemFields -FieldNames $CompanyNameFieldNames
+                if (-not $destinationCompanyId) {
+                    if ($metadataSource) {
+                        $metadataCompanyFieldName = $metadataSource.FieldName
+                        $metadataCompanyFieldValue = $metadataSource.FieldValue
+                    }
+
+                    $metadataMatchResult = Resolve-TaggedDocumentSyncCompanyMatchFromMetadata `
+                        -ClientName $metadataCompanyFieldValue `
+                        -CompanyNameIndex $companyNameIndex `
+                        -MinConfidence $MetadataCompanyMinConfidence `
+                        -MinConfidenceGap $MetadataCompanyMinConfidenceGap
+
+                    $metadataCompanyConfidence = [double]$metadataMatchResult.Confidence
+                    $metadataCompanyConfidenceGap = [double]$metadataMatchResult.ConfidenceGap
+                    $metadataCompanyCandidates = @($metadataMatchResult.Candidates | ForEach-Object { "$($_.Name) ($($_.Confidence))" })
+
+                    if ($metadataMatchResult.Status -ne 'Matched') {
+                        $status = "Skipped$($metadataMatchResult.Status)"
+                        if ($metadataLookupId -and -not $clientMapEntry) {
+                            $status = 'SkippedClientLookupIdNotInAttributionMap'
+                        } elseif ($clientMapEntry -and -not ($clientMapEntry.HuduCompanyId ?? $clientMapEntry.CompanyId)) {
+                            $status = 'SkippedClientAttributionMapEntryNotMatched'
+                        }
+                        $skipped++
+                        continue
+                    }
+
+                    $companyAttributionMethod = if ($clientMapEntry) { 'ClientAttributionMapLookupIdFuzzyName' } else { 'MetadataCompanyName' }
+                    $metadataCompanyInferred++
+                    $matchedCompany = $metadataMatchResult.Match
+                    $destinationCompanyId = [int]$matchedCompany.Id
+                    $destinationCompanyName = [string]$matchedCompany.Name
+                    $companyMatchCount = 1
+                    $companyMatchNames = @($destinationCompanyName)
+                    Write-TaggedDocumentSyncLog -Message "Inferred company for '$articleTitle' from $metadataCompanyFieldName '$metadataCompanyFieldValue' => '$destinationCompanyName' ($metadataCompanyConfidence%, gap $metadataCompanyConfidenceGap)." -Color DarkCyan
+                }
             } else {
                 $status = if ($companyMatchResult.Status -eq 'NoDocumentTag') { 'SkippedNoDocumentTag' } else { 'SkippedNoMatchingCompanyTag' }
                 $skipped++
@@ -2904,6 +3068,9 @@ foreach ($drive in @($drives)) {
                 MetadataCompanyConfidence = $metadataCompanyConfidence
                 MetadataCompanyConfidenceGap = $metadataCompanyConfidenceGap
                 MetadataCompanyCandidates = (@($metadataCompanyCandidates) -join '; ')
+                MetadataLookupFieldName = $metadataLookupFieldName
+                MetadataLookupId        = $metadataLookupId
+                MetadataMapMatchStatus  = $metadataMapMatchStatus
                 CompanyTagMatchCount     = $companyMatchCount
                 CompanyTagMatches        = (@($companyMatchNames) -join '; ')
                 DestinationCompanyId     = $destinationCompanyId
@@ -2946,6 +3113,7 @@ $summary = [PSCustomObject]@{
     CleanedWorkingFiles = $cleanedWorkingFiles
     SkippedExpectedLocation = $skippedExpectedLocation
     MetadataCompanyInferred = $metadataCompanyInferred
+    FilteredFilenameTagged = $filteredFilenameTagged
     Skipped       = $skipped
     Failed        = $failed
     DuplicateTagSelections = $duplicateTagSelections
@@ -2960,6 +3128,6 @@ $summary = [PSCustomObject]@{
     SkipCreateWhenArticleTitleExistsAnywhere = $SkipCreateWhenArticleTitleExistsAnywhere
 }
 
-Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, metadataCompanyInferred=$metadataCompanyInferred, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
+Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, metadataCompanyInferred=$metadataCompanyInferred, filteredFilenameTagged=$filteredFilenameTagged, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
 
 $summary

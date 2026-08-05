@@ -46,12 +46,15 @@ param(
     [string[]]$CompanyNameFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
     [string[]]$CompanyLookupIdFieldNames = @('Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company'),
     [string]$ClientAttributionMapPath = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'logs') 'client-attribution-map.json'),
+    [bool]$ResolveClientLookupIdsFromSharePointList = $true,
+    [string[]]$ClientLookupListNames = @('Client List'),
     [bool]$InferCompanyFromMetadata = $true,
     [ValidateRange(0, 100)]
     [double]$MetadataCompanyMinConfidence = 92,
     [ValidateRange(0, 100)]
     [double]$MetadataCompanyMinConfidenceGap = 8,
     [bool]$MoveExistingArticlesForInferredCompany = $false,
+    [bool]$FallbackToGlobalKbWhenMetadataCompanyUnmatched = $false,
 
     # Use when exporting multiple drives and you want "Documents\Folder\File" in Hudu.
     [switch]$IncludeDriveNameInFolderPath,
@@ -545,6 +548,113 @@ function Remove-TaggedDocumentSyncTrailingGroups {
     return $text.Trim()
 }
 
+function Get-TaggedDocumentSyncPreferredClientTitle {
+    param($Fields)
+
+    if (-not $Fields) { return $null }
+
+    foreach ($fieldName in @('Title', 'LinkTitle', 'Client Name', 'ClientName', 'Client_x0020_Name', 'Client', 'Company', 'Name')) {
+        $source = Get-TaggedDocumentSyncFieldText -ListItemFields $Fields -FieldNames @($fieldName)
+        if ($source -and -not [string]::IsNullOrWhiteSpace([string]$source.FieldValue)) {
+            return [string]$source.FieldValue
+        }
+    }
+
+    return $null
+}
+
+function New-TaggedDocumentSyncClientLookupIndexFromSharePointList {
+    param(
+        [Parameter(Mandatory)] $Site,
+        [string[]]$ListNames = @('Client List')
+    )
+
+    $index = @{}
+    $listNameKeys = @($ListNames | ForEach-Object { ConvertTo-TaggedDocumentSyncKey -Value $_ }) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    if ($listNameKeys.Count -lt 1) { return $index }
+
+    try {
+        $lists = @(Invoke-TaggedDocumentSyncGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites/$($Site.id)/lists")
+        $targetLists = @($lists | Where-Object {
+            $displayNameKey = ConvertTo-TaggedDocumentSyncKey -Value ($_.displayName ?? $_.name)
+            $listNameKeys -contains $displayNameKey
+        })
+
+        if ($targetLists.Count -lt 1) {
+            Write-TaggedDocumentSyncLog -Message "No SharePoint client lookup list found by name: $(@($ListNames) -join ', ')." -Color DarkGray
+            return $index
+        }
+
+        foreach ($list in $targetLists) {
+            $listLabel = [string]($list.displayName ?? $list.name ?? $list.id)
+            $items = @(Invoke-TaggedDocumentSyncGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites/$($Site.id)/lists/$($list.id)/items?`$expand=fields&`$top=999")
+            foreach ($item in $items) {
+                $itemId = $item.id ?? $item.fields.id ?? $item.fields.ID
+                if ($null -eq $itemId -or [string]::IsNullOrWhiteSpace([string]$itemId)) { continue }
+
+                $rawTitle = Get-TaggedDocumentSyncPreferredClientTitle -Fields $item.fields
+                if ([string]::IsNullOrWhiteSpace($rawTitle)) { continue }
+
+                $clientName = Remove-TaggedDocumentSyncTrailingGroups -Value $rawTitle
+                if ([string]::IsNullOrWhiteSpace($clientName)) { $clientName = $rawTitle }
+
+                $index[[string]$itemId] = [PSCustomObject]@{
+                    SharePointItemId  = [string]$itemId
+                    ListName          = $listLabel
+                    SiteName          = [string]($Site.displayName ?? $Site.name)
+                    SiteId            = [string]$Site.id
+                    WebUrl            = [string]($item.webUrl ?? $list.webUrl)
+                    AttributionSource = 'sharepoint_lookup_list'
+                    RawTitle          = $rawTitle
+                    ClientName        = $clientName
+                    HuduCompanyId     = $null
+                    HuduCompanyName   = $null
+                    Confidence        = 0
+                    ConfidenceGap     = 0
+                    MatchStatus       = 'SharePointLookupOnly'
+                }
+            }
+
+            Write-TaggedDocumentSyncLog -Message "Loaded $($items.Count) item(s) from SharePoint client lookup list '$listLabel'." -Color DarkCyan
+        }
+    } catch {
+        Write-TaggedDocumentSyncLog -Message "Failed to load SharePoint client lookup list(s): $($_.Exception.Message)" -Color Yellow
+    }
+
+    return $index
+}
+
+function Merge-TaggedDocumentSyncClientLookupIndex {
+    param(
+        [Parameter(Mandatory)] [hashtable]$Target,
+        [Parameter(Mandatory)] [hashtable]$Source
+    )
+
+    foreach ($key in @($Source.Keys)) {
+        if (-not $Target.ContainsKey($key)) {
+            $Target[$key] = $Source[$key]
+            continue
+        }
+
+        $targetEntry = $Target[$key]
+        $sourceEntry = $Source[$key]
+        foreach ($propertyName in @('RawTitle', 'ClientName', 'ListName', 'WebUrl')) {
+            $targetProperty = $targetEntry.PSObject.Properties[$propertyName]
+            $sourceProperty = $sourceEntry.PSObject.Properties[$propertyName]
+            if (
+                $targetProperty -and
+                $sourceProperty -and
+                [string]::IsNullOrWhiteSpace([string]$targetProperty.Value) -and
+                -not [string]::IsNullOrWhiteSpace([string]$sourceProperty.Value)
+            ) {
+                $targetEntry | Add-Member -NotePropertyName $propertyName -NotePropertyValue $sourceProperty.Value -Force
+            }
+        }
+    }
+}
+
 function Get-TaggedDocumentSyncCompanyNameAliases {
     param($CompanyName)
 
@@ -972,7 +1082,7 @@ function ConvertTo-TaggedDocumentSyncNullableIdKey {
 function Test-TaggedDocumentSyncArticleExpectedLocation {
     param(
         [Parameter(Mandatory)] $Article,
-        [Parameter(Mandatory)] [int]$CompanyId,
+        $CompanyId,
         $FolderId
     )
 
@@ -1349,7 +1459,7 @@ function Add-TaggedDocumentSyncArticleToTitleIndex {
 function Find-TaggedDocumentSyncExistingArticle {
     param(
         [Parameter(Mandatory)] [string]$Title,
-        [Parameter(Mandatory)] [int]$TargetCompanyId,
+        $TargetCompanyId,
         [hashtable]$ArticleIndex
     )
 
@@ -1388,7 +1498,7 @@ function Find-TaggedDocumentSyncExistingArticle {
     }
 
     $targetCompanyMatch = @($exactMatches | Where-Object {
-        [string](Get-TaggedDocumentSyncArticleCompanyId -Article $_) -eq [string]$TargetCompanyId
+        [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value (Get-TaggedDocumentSyncArticleCompanyId -Article $_)) -eq [string](ConvertTo-TaggedDocumentSyncNullableIdKey -Value $TargetCompanyId)
     })
 
     if ($targetCompanyMatch.Count -gt 0) {
@@ -1483,7 +1593,7 @@ function New-TaggedDocumentSyncArticle {
     param(
         [Parameter(Mandatory)] [string]$Title,
         [Parameter(Mandatory)] [string]$Content,
-        [Parameter(Mandatory)] [int]$CompanyId,
+        $CompanyId,
         $FolderId
     )
 
@@ -1491,8 +1601,8 @@ function New-TaggedDocumentSyncArticle {
         $params = @{
             Name      = $Title
             Content   = $Content
-            CompanyId = $CompanyId
         }
+        if ($CompanyId) { $params.CompanyId = [int]$CompanyId }
         if ($FolderId) { $params.FolderId = $FolderId }
 
         $created = New-HuduArticle @params
@@ -1500,10 +1610,10 @@ function New-TaggedDocumentSyncArticle {
     }
 
     $article = @{
-        name       = $Title
-        content    = $Content
-        company_id = $CompanyId
+        name    = $Title
+        content = $Content
     }
+    if ($CompanyId) { $article.company_id = [int]$CompanyId }
     if ($FolderId) { $article.folder_id = $FolderId }
 
     $createdResponse = Invoke-TaggedDocumentSyncHuduRequest `
@@ -1517,7 +1627,7 @@ function New-TaggedDocumentSyncArticle {
 function Set-TaggedDocumentSyncArticle {
     param(
         [Parameter(Mandatory)] [int]$ArticleId,
-        [Parameter(Mandatory)] [int]$CompanyId,
+        $CompanyId,
         $FolderId,
         [string]$Name,
         [string]$Content,
@@ -1528,7 +1638,7 @@ function Set-TaggedDocumentSyncArticle {
     $article = $object.article ?? $object
     if (-not $article) { throw "Hudu article $ArticleId was not returned." }
 
-    $article.company_id = $CompanyId
+    $article.company_id = if ($CompanyId) { [int]$CompanyId } else { $null }
     $article.folder_id = if ($FolderId) { $FolderId } else { $null }
     if (-not [string]::IsNullOrWhiteSpace($Name)) {
         $article.name = $Name
@@ -2579,6 +2689,11 @@ if ($SkipSharePointDocumentSync) {
 $site = Resolve-TaggedDocumentSyncSite -GraphSiteId $SiteId -SharePointSiteUrl $SiteUrl
 $siteLabel = [string]($site.displayName ?? $site.name ?? $site.id)
 
+if ($InferCompanyFromMetadata -and $ResolveClientLookupIdsFromSharePointList) {
+    $sharePointClientLookupIndex = New-TaggedDocumentSyncClientLookupIndexFromSharePointList -Site $site -ListNames $ClientLookupListNames
+    Merge-TaggedDocumentSyncClientLookupIndex -Target $clientAttributionMapByLookupId -Source $sharePointClientLookupIndex
+}
+
 $drives = @(Invoke-TaggedDocumentSyncGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/drives")
 if ($DriveIds.Count -gt 0) {
     $driveIdSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -2593,7 +2708,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
+Write-TaggedDocumentSyncLog -Message "SharePoint tagged document sync for '$siteLabel'. Drives=$($drives.Count); DryRun=$dryRun; MoveExisting=$MoveExistingArticles; CreateMissing=$CreateMissingArticles; RefreshExisting=$RefreshExistingContent; ConvertCreated=$ConvertCreatedArticles; SkipExpected=$SkipExistingInExpectedLocation; OnlyWithoutFilenameTag=$OnlyDocumentsWithoutFilenameTag; UseArticleIndex=$UseHuduArticleIndex; SkipCreateExistingTitle=$SkipCreateWhenArticleTitleExistsAnywhere; InferMetadataCompany=$InferCompanyFromMetadata; ResolveClientLookupList=$ResolveClientLookupIdsFromSharePointList; GlobalKbFallback=$FallbackToGlobalKbWhenMetadataCompanyUnmatched; IndexAssets=$IndexTaggedHuduAssets; LowDiskMode=$LowDiskMode." -Color Cyan
 
 $uploadIndex = New-TaggedDocumentSyncUploadIndex
 $articleTitleIndex = if ($UseHuduArticleIndex) { New-TaggedDocumentSyncArticleTitleIndex } else { $null }
@@ -2615,6 +2730,7 @@ $cleanedWorkingFiles = 0
 $skippedExpectedLocation = 0
 $metadataCompanyInferred = 0
 $filteredFilenameTagged = 0
+$globalKbFallbacks = 0
 
 foreach ($drive in @($drives)) {
     $driveLabel = [string]($drive.name ?? $drive.id)
@@ -2762,24 +2878,33 @@ foreach ($drive in @($drives)) {
                     $metadataCompanyCandidates = @($metadataMatchResult.Candidates | ForEach-Object { "$($_.Name) ($($_.Confidence))" })
 
                     if ($metadataMatchResult.Status -ne 'Matched') {
-                        $status = "Skipped$($metadataMatchResult.Status)"
-                        if ($metadataLookupId -and -not $clientMapEntry) {
-                            $status = 'SkippedClientLookupIdNotInAttributionMap'
-                        } elseif ($clientMapEntry -and -not ($clientMapEntry.HuduCompanyId ?? $clientMapEntry.CompanyId)) {
-                            $status = 'SkippedClientAttributionMapEntryNotMatched'
+                        if ($FallbackToGlobalKbWhenMetadataCompanyUnmatched) {
+                            $companyAttributionMethod = 'GlobalKbFallback'
+                            $destinationCompanyId = $null
+                            $destinationCompanyName = 'Global KB'
+                            $metadataCompanyCandidates = @($metadataMatchResult.Candidates | ForEach-Object { "$($_.Name) ($($_.Confidence))" })
+                            $globalKbFallbacks++
+                            Write-TaggedDocumentSyncLog -Message "Falling back to global KB for '$articleTitle'; metadata company was not confident. LookupId='$metadataLookupId'; value='$metadataCompanyFieldValue'; status='$($metadataMatchResult.Status)'." -Color Yellow
+                        } else {
+                            $status = "Skipped$($metadataMatchResult.Status)"
+                            if ($metadataLookupId -and -not $clientMapEntry) {
+                                $status = 'SkippedClientLookupIdNotInAttributionMap'
+                            } elseif ($clientMapEntry -and -not ($clientMapEntry.HuduCompanyId ?? $clientMapEntry.CompanyId)) {
+                                $status = 'SkippedClientAttributionMapEntryNotMatched'
+                            }
+                            $skipped++
+                            continue
                         }
-                        $skipped++
-                        continue
+                    } else {
+                        $companyAttributionMethod = if ($clientMapEntry) { 'ClientAttributionMapLookupIdFuzzyName' } else { 'MetadataCompanyName' }
+                        $metadataCompanyInferred++
+                        $matchedCompany = $metadataMatchResult.Match
+                        $destinationCompanyId = [int]$matchedCompany.Id
+                        $destinationCompanyName = [string]$matchedCompany.Name
+                        $companyMatchCount = 1
+                        $companyMatchNames = @($destinationCompanyName)
+                        Write-TaggedDocumentSyncLog -Message "Inferred company for '$articleTitle' from $metadataCompanyFieldName '$metadataCompanyFieldValue' => '$destinationCompanyName' ($metadataCompanyConfidence%, gap $metadataCompanyConfidenceGap)." -Color DarkCyan
                     }
-
-                    $companyAttributionMethod = if ($clientMapEntry) { 'ClientAttributionMapLookupIdFuzzyName' } else { 'MetadataCompanyName' }
-                    $metadataCompanyInferred++
-                    $matchedCompany = $metadataMatchResult.Match
-                    $destinationCompanyId = [int]$matchedCompany.Id
-                    $destinationCompanyName = [string]$matchedCompany.Name
-                    $companyMatchCount = 1
-                    $companyMatchNames = @($destinationCompanyName)
-                    Write-TaggedDocumentSyncLog -Message "Inferred company for '$articleTitle' from $metadataCompanyFieldName '$metadataCompanyFieldValue' => '$destinationCompanyName' ($metadataCompanyConfidence%, gap $metadataCompanyConfidenceGap)." -Color DarkCyan
                 }
             } else {
                 $status = if ($companyMatchResult.Status -eq 'NoDocumentTag') { 'SkippedNoDocumentTag' } else { 'SkippedNoMatchingCompanyTag' }
@@ -2787,11 +2912,11 @@ foreach ($drive in @($drives)) {
                 continue
             }
 
-            if ($destinationPath.Count -gt 0) {
+            if ($destinationPath.Count -gt 0 -and $destinationCompanyId) {
                 $folderIndex = Get-TaggedDocumentSyncFolderIndexForCompany -CompanyId $destinationCompanyId -FolderIndexByCompany $folderIndexByCompany
                 $folder = Ensure-TaggedDocumentSyncFolderPath `
                     -Path $destinationPath.ToArray() `
-                    -CompanyId $destinationCompanyId `
+                    -CompanyId ([int]$destinationCompanyId) `
                     -FolderById $folderIndex.FolderById `
                     -ChildrenByParent $folderIndex.ChildrenByParent `
                     -DryRun:$dryRun
@@ -2822,7 +2947,7 @@ foreach ($drive in @($drives)) {
 
             if (
                 $existingResult.Status -eq 'FoundElsewhere' -and
-                $companyAttributionMethod -eq 'MetadataCompanyName' -and
+                $companyAttributionMethod -in @('MetadataCompanyName', 'ClientAttributionMapLookupIdFuzzyName', 'GlobalKbFallback') -and
                 -not $MoveExistingArticlesForInferredCompany
             ) {
                 if ($SkipCreateWhenArticleTitleExistsAnywhere) {
@@ -2878,7 +3003,7 @@ foreach ($drive in @($drives)) {
                 Add-TaggedDocumentSyncArticleToTitleIndex -ArticleIndex $articleTitleIndex -Article $updatedArticle
 
                 if ($UploadSourceFile) {
-                    $downloadDirectory = Join-Path $resolvedWorkingDirectory (Get-TaggedDocumentSyncSafePathName -Name $destinationCompanyName -Fallback $destinationCompanyId)
+                $downloadDirectory = Join-Path $resolvedWorkingDirectory (Get-TaggedDocumentSyncSafePathName -Name $destinationCompanyName -Fallback 'global-kb')
                     foreach ($part in @($destinationPath)) {
                         $downloadDirectory = Join-Path $downloadDirectory (Get-TaggedDocumentSyncSafePathName -Name $part)
                     }
@@ -2918,7 +3043,7 @@ foreach ($drive in @($drives)) {
                 continue
             }
 
-            $downloadDirectory = Join-Path $resolvedWorkingDirectory (Get-TaggedDocumentSyncSafePathName -Name $destinationCompanyName -Fallback $destinationCompanyId)
+            $downloadDirectory = Join-Path $resolvedWorkingDirectory (Get-TaggedDocumentSyncSafePathName -Name $destinationCompanyName -Fallback 'global-kb')
             foreach ($part in @($destinationPath)) {
                 $downloadDirectory = Join-Path $downloadDirectory (Get-TaggedDocumentSyncSafePathName -Name $part)
             }
@@ -3113,6 +3238,7 @@ $summary = [PSCustomObject]@{
     CleanedWorkingFiles = $cleanedWorkingFiles
     SkippedExpectedLocation = $skippedExpectedLocation
     MetadataCompanyInferred = $metadataCompanyInferred
+    GlobalKbFallbacks = $globalKbFallbacks
     FilteredFilenameTagged = $filteredFilenameTagged
     Skipped       = $skipped
     Failed        = $failed
@@ -3128,6 +3254,6 @@ $summary = [PSCustomObject]@{
     SkipCreateWhenArticleTitleExistsAnywhere = $SkipCreateWhenArticleTitleExistsAnywhere
 }
 
-Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, metadataCompanyInferred=$metadataCompanyInferred, filteredFilenameTagged=$filteredFilenameTagged, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
+Write-TaggedDocumentSyncLog -Message "Tagged document sync complete: processed=$processed, created=$created, moved=$moved, updated=$updated, uploaded=$uploaded, reusedUploads=$reusedUploads, convertedCreated=$convertedCreated, conversionFallbacks=$conversionFallbacks, cleanedWorkingFiles=$cleanedWorkingFiles, skippedExpectedLocation=$skippedExpectedLocation, metadataCompanyInferred=$metadataCompanyInferred, globalKbFallbacks=$globalKbFallbacks, filteredFilenameTagged=$filteredFilenameTagged, duplicateTagSelections=$duplicateTagSelections, skipped=$skipped, failed=$failed, assetIndexMoved=$($assetIndexSummary.MovedAssets), assetIndexSkipped=$($assetIndexSummary.SkippedAssets), assetIndexFailed=$($assetIndexSummary.FailedAssets). Report: $resolvedReportPath" -Color Cyan
 
 $summary

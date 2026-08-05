@@ -24,8 +24,12 @@ param(
     [string]$ColumnOutputPath = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'logs') 'sharepoint-file-client-lookup-columns.csv'),
 
     [string]$ListNamePattern = '(?i)client|compan|customer|account',
+    [string[]]$LookupListIds = @(),
+    [string[]]$LookupListNames = @(),
     [switch]$ResolveAllLists,
     [switch]$NoLookupResolution,
+    [switch]$IncludeAllLookupListItems,
+    [switch]$SkipFileScan,
 
     [ValidateRange(0, [int]::MaxValue)]
     [int]$MaxItems = 0
@@ -370,6 +374,42 @@ function Get-ClientMetadataLookupColumnRows {
     }
 }
 
+function Select-ClientMetadataTargetLists {
+    param(
+        [object[]]$Lists,
+        [string[]]$Ids = @(),
+        [string[]]$Names = @(),
+        [string]$NamePattern,
+        [switch]$All
+    )
+
+    if ($All) { return @($Lists) }
+
+    if ($Ids.Count -gt 0) {
+        $idSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($id in @($Ids)) {
+            if (-not [string]::IsNullOrWhiteSpace($id)) {
+                [void]$idSet.Add([string]$id)
+            }
+        }
+
+        return @($Lists | Where-Object { $idSet.Contains([string]$_.id) })
+    }
+
+    if ($Names.Count -gt 0) {
+        $nameKeys = @($Names | ForEach-Object { ConvertTo-ClientMetadataKey -Value $_ })
+        return @($Lists | Where-Object {
+            $displayNameKey = ConvertTo-ClientMetadataKey -Value $_.displayName
+            $nameKey = ConvertTo-ClientMetadataKey -Value $_.name
+            $nameKeys -contains $displayNameKey -or $nameKeys -contains $nameKey
+        })
+    }
+
+    return @($Lists | Where-Object {
+        [string](Select-ClientMetadataFirstValue $_.displayName $_.name) -match $NamePattern
+    })
+}
+
 $resolvedOutputPath = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
     [System.IO.Path]::GetFullPath($OutputPath)
 } else {
@@ -419,7 +459,7 @@ if ($DriveNames.Count -gt 0) {
     })
 }
 
-Write-ClientMetadataLog -Message "Dumping SharePoint file client metadata for '$siteLabel'. Drives=$($drives.Count); ResolveAllLists=$ResolveAllLists; NoLookupResolution=$NoLookupResolution." -Color Cyan
+Write-ClientMetadataLog -Message "Dumping SharePoint file client metadata for '$siteLabel'. Drives=$($drives.Count); ResolveAllLists=$ResolveAllLists; NoLookupResolution=$NoLookupResolution; SkipFileScan=$SkipFileScan." -Color Cyan
 
 $fileRows = [System.Collections.Generic.List[object]]::new()
 $columnRows = [System.Collections.Generic.List[object]]::new()
@@ -433,6 +473,8 @@ foreach ($drive in @($drives)) {
     foreach ($columnRow in @(Get-ClientMetadataLookupColumnRows -Site $site -Drive $drive -ListNameById $listNameById)) {
         $columnRows.Add($columnRow)
     }
+
+    if ($SkipFileScan) { continue }
 
     foreach ($entry in @(Get-ClientMetadataDriveItems -Site $site -Drive $drive)) {
         if ($MaxItems -gt 0 -and $processed -ge $MaxItems) { break }
@@ -475,20 +517,19 @@ foreach ($drive in @($drives)) {
 $lookupCandidateRows = [System.Collections.Generic.List[object]]::new()
 $lookupCandidateById = @{}
 
-if (-not $NoLookupResolution -and $lookupIdSet.Count -gt 0) {
+if (-not $NoLookupResolution -and ($lookupIdSet.Count -gt 0 -or $IncludeAllLookupListItems)) {
     $lists = $siteLists
     if ($lists.Count -lt 1) {
         $lists = @(Invoke-ClientMetadataGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists")
     }
-    $targetLists = if ($ResolveAllLists) {
-        $lists
-    } else {
-        @($lists | Where-Object {
-            [string](Select-ClientMetadataFirstValue $_.displayName $_.name) -match $ListNamePattern
-        })
-    }
+    $targetLists = @(Select-ClientMetadataTargetLists `
+        -Lists $lists `
+        -Ids $LookupListIds `
+        -Names $LookupListNames `
+        -NamePattern $ListNamePattern `
+        -All:$ResolveAllLists)
 
-    Write-ClientMetadataLog -Message "Resolving $($lookupIdSet.Count) unique lookup id(s) across $($targetLists.Count) list(s)." -Color DarkCyan
+    Write-ClientMetadataLog -Message "Resolving $($lookupIdSet.Count) unique lookup id(s) across $($targetLists.Count) list(s). IncludeAllLookupListItems=$IncludeAllLookupListItems." -Color DarkCyan
 
     foreach ($list in @($targetLists)) {
         $listLabel = [string](Select-ClientMetadataFirstValue $list.displayName $list.name $list.id)
@@ -496,11 +537,13 @@ if (-not $NoLookupResolution -and $lookupIdSet.Count -gt 0) {
             $items = @(Invoke-ClientMetadataGraphCollection -Uri "https://graph.microsoft.com/v1.0/sites/$($site.id)/lists/$($list.id)/items?`$expand=fields&`$top=999")
             foreach ($listItem in $items) {
                 $itemId = [string](Select-ClientMetadataFirstValue $listItem.id $listItem.fields.id $listItem.fields.ID)
-                if ([string]::IsNullOrWhiteSpace($itemId) -or -not $lookupIdSet.Contains($itemId)) { continue }
+                if ([string]::IsNullOrWhiteSpace($itemId)) { continue }
+                if (-not $IncludeAllLookupListItems -and -not $lookupIdSet.Contains($itemId)) { continue }
 
                 $title = Get-ClientMetadataPreferredTitle -Fields $listItem.fields
                 $row = [PSCustomObject]@{
                     LookupId       = $itemId
+                    IsUsedByScannedFiles = $lookupIdSet.Contains($itemId)
                     ListName       = $listLabel
                     ListId         = $list.id
                     CandidateTitle = $title

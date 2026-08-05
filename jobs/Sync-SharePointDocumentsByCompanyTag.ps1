@@ -639,6 +639,55 @@ function Import-TaggedDocumentSyncClientCompanyOverrideMap {
     return $index
 }
 
+function New-TaggedDocumentSyncClientCompanyOverrideNameIndex {
+    param([hashtable]$LookupIndex = @{})
+
+    $nameIndex = @{}
+    foreach ($entry in @($LookupIndex.Values)) {
+        foreach ($name in @($entry.ClientName, $entry.RawTitle, $entry.HuduCompanyName)) {
+            if ([string]::IsNullOrWhiteSpace([string]$name)) { continue }
+
+            foreach ($candidate in @(
+                [string]$name
+                (Remove-TaggedDocumentSyncTrailingGroups -Value $name)
+                (Remove-TaggedDocumentSyncLegalSuffixes -Value $name)
+                (Remove-TaggedDocumentSyncLegalSuffixes -Value (Remove-TaggedDocumentSyncTrailingGroups -Value $name))
+            )) {
+                $key = ConvertTo-TaggedDocumentSyncKey -Value $candidate
+                if ([string]::IsNullOrWhiteSpace($key)) { continue }
+                if (-not $nameIndex.ContainsKey($key)) {
+                    $nameIndex[$key] = $entry
+                }
+            }
+        }
+    }
+
+    return $nameIndex
+}
+
+function Resolve-TaggedDocumentSyncClientCompanyOverrideByName {
+    param(
+        [string]$Name,
+        [hashtable]$NameIndex = @{}
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name) -or -not $NameIndex) { return $null }
+
+    foreach ($candidate in @(
+        [string]$Name
+        (Remove-TaggedDocumentSyncTrailingGroups -Value $Name)
+        (Remove-TaggedDocumentSyncLegalSuffixes -Value $Name)
+        (Remove-TaggedDocumentSyncLegalSuffixes -Value (Remove-TaggedDocumentSyncTrailingGroups -Value $Name))
+    )) {
+        $key = ConvertTo-TaggedDocumentSyncKey -Value $candidate
+        if (-not [string]::IsNullOrWhiteSpace($key) -and $NameIndex.ContainsKey($key)) {
+            return $NameIndex[$key]
+        }
+    }
+
+    return $null
+}
+
 function Remove-TaggedDocumentSyncTrailingGroups {
     param($Value)
 
@@ -2735,6 +2784,7 @@ $companyTagIndex = New-TaggedDocumentSyncCompanyTagIndex -Companies $huduCompani
 $companyNameIndex = if ($InferCompanyFromMetadata) { New-TaggedDocumentSyncCompanyNameIndex -Companies $huduCompanies } else { @() }
 $clientAttributionMapByLookupId = if ($InferCompanyFromMetadata) { Import-TaggedDocumentSyncClientAttributionMap -Path $ClientAttributionMapPath } else { @{} }
 $clientCompanyOverrideByLookupId = Import-TaggedDocumentSyncClientCompanyOverrideMap -InlineMap $ClientCompanyOverrideMap -Path $ClientCompanyOverridePath
+$clientCompanyOverrideByName = New-TaggedDocumentSyncClientCompanyOverrideNameIndex -LookupIndex $clientCompanyOverrideByLookupId
 $duplicateCompanyTags = @($companyTagIndex.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($duplicateCompanyTags.Count -gt 0) {
     Write-TaggedDocumentSyncLog -Message "Found $($duplicateCompanyTags.Count) duplicate company tag(s). The first company returned by Hudu will be used for those tags." -Color Yellow
@@ -2969,12 +3019,31 @@ foreach ($drive in @($drives)) {
                 }
 
                 $metadataSource = Get-TaggedDocumentSyncFieldText -ListItemFields $listItemFields -FieldNames $CompanyNameFieldNames
-                if (-not $destinationCompanyId) {
-                    if ($metadataSource) {
-                        $metadataCompanyFieldName = $metadataSource.FieldName
-                        $metadataCompanyFieldValue = $metadataSource.FieldValue
-                    }
+                if ($metadataSource -and ([string]::IsNullOrWhiteSpace([string]$metadataCompanyFieldValue))) {
+                    $metadataCompanyFieldName = $metadataSource.FieldName
+                    $metadataCompanyFieldValue = $metadataSource.FieldValue
+                }
 
+                if (-not $destinationCompanyId) {
+                    $nameOverrideEntry = Resolve-TaggedDocumentSyncClientCompanyOverrideByName -Name $metadataCompanyFieldValue -NameIndex $clientCompanyOverrideByName
+                    $nameOverrideCompany = Resolve-TaggedDocumentSyncCompanyFromClientMapEntry -Entry $nameOverrideEntry -CompanyById $companyById
+                    if ($nameOverrideCompany) {
+                        $clientMapEntry = $nameOverrideEntry
+                        $metadataMapMatchStatus = 'OverrideName'
+                        $companyAttributionMethod = 'ClientCompanyOverrideName'
+                        $metadataCompanyInferred++
+                        $matchedCompany = $nameOverrideCompany
+                        $destinationCompanyId = [int]$matchedCompany.Id
+                        $destinationCompanyName = [string]$matchedCompany.Name
+                        $metadataCompanyConfidence = [double]$matchedCompany.Confidence
+                        $metadataCompanyConfidenceGap = [double]($nameOverrideEntry.ConfidenceGap ?? 100)
+                        $companyMatchCount = 1
+                        $companyMatchNames = @($destinationCompanyName)
+                        Write-TaggedDocumentSyncLog -Message "Resolved company for '$articleTitle' from override name '$metadataCompanyFieldValue' => '$destinationCompanyName'." -Color DarkCyan
+                    }
+                }
+
+                if (-not $destinationCompanyId) {
                     $metadataMatchResult = Resolve-TaggedDocumentSyncCompanyMatchFromMetadata `
                         -ClientName $metadataCompanyFieldValue `
                         -CompanyNameIndex $companyNameIndex `
@@ -2992,7 +3061,7 @@ foreach ($drive in @($drives)) {
                             $destinationCompanyName = 'Global KB'
                             $metadataCompanyCandidates = @($metadataMatchResult.Candidates | ForEach-Object { "$($_.Name) ($($_.Confidence))" })
                             $globalKbFallbacks++
-                            Write-TaggedDocumentSyncLog -Message "Falling back to global KB for '$articleTitle'; metadata company was not confident. LookupId='$metadataLookupId'; value='$metadataCompanyFieldValue'; status='$($metadataMatchResult.Status)'." -Color Yellow
+                            Write-TaggedDocumentSyncLog -Message "Falling back to global KB for '$articleTitle'; metadata company was not confident. LookupId='$metadataLookupId'; mapStatus='$metadataMapMatchStatus'; value='$metadataCompanyFieldValue'; status='$($metadataMatchResult.Status)'; overrideCount=$($clientCompanyOverrideByLookupId.Count)." -Color Yellow
                         } else {
                             $status = "Skipped$($metadataMatchResult.Status)"
                             if ($metadataLookupId -and -not $clientMapEntry) {

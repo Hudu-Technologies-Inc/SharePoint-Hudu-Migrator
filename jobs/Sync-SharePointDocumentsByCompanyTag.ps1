@@ -38,8 +38,6 @@ param(
     [string[]]$DriveIds = @(),
     [string[]]$DriveNames = @(),
     [switch]$OnlyDocumentsWithoutFilenameTag,
-    [ValidateRange(0, 120)]
-    [int]$SharePointTokenRefreshWindowMinutes = 10,
 
     [string]$DestinationRootFolderName = "",
 
@@ -1061,10 +1059,8 @@ function Get-TaggedDocumentSyncArticleTitle {
 }
 
 function Get-TaggedDocumentSyncHeaders {
-    param([switch]$Force)
-
     if (Get-Command Update-SharePointAccessToken -ErrorAction SilentlyContinue) {
-        return Update-SharePointAccessToken -Force:$Force -RefreshWindowMinutes $SharePointTokenRefreshWindowMinutes
+        return Update-SharePointAccessToken
     }
 
     if ($null -eq $script:Headers -or -not $script:Headers.ContainsKey('Authorization')) {
@@ -1081,7 +1077,6 @@ function Invoke-TaggedDocumentSyncGraphRequest {
     )
 
     $attempt = 0
-    $authRetried = $false
     while ($true) {
         try {
             return Invoke-RestMethod `
@@ -1093,14 +1088,6 @@ function Invoke-TaggedDocumentSyncGraphRequest {
             $statusCode = $null
             try { $statusCode = [int]$_.Exception.Response.StatusCode } catch {}
             $isTransient = $statusCode -in @(429, 502, 503, 504)
-            $isAuthFailure = $statusCode -in @(401, 403)
-
-            if ($isAuthFailure -and -not $authRetried -and (Get-Command Update-SharePointAccessToken -ErrorAction SilentlyContinue)) {
-                $authRetried = $true
-                Write-TaggedDocumentSyncLog -Message "Graph returned HTTP $statusCode. Refreshing SharePoint token and retrying once: $Uri" -Color Yellow
-                $null = Get-TaggedDocumentSyncHeaders -Force
-                continue
-            }
 
             if (-not $isTransient -or $attempt -ge $MaxRetries) {
                 throw
@@ -2040,25 +2027,14 @@ function Ensure-TaggedDocumentSyncFolderPath {
 function Save-TaggedDocumentSyncDriveItem {
     param(
         [Parameter(Mandatory)] $DriveItem,
-        [Parameter(Mandatory)] [string]$TargetDirectory,
-        $Site,
-        $Drive
+        [Parameter(Mandatory)] [string]$TargetDirectory
     )
 
     if ($DriveItem.size -ge 100MB) {
         return $null
     }
 
-    $downloadItem = $DriveItem
-    if ($Site -and $Drive -and -not [string]::IsNullOrWhiteSpace([string]$DriveItem.id)) {
-        try {
-            $downloadItem = Invoke-TaggedDocumentSyncGraphRequest -Uri "https://graph.microsoft.com/v1.0/sites/$($Site.id)/drives/$($Drive.id)/items/$($DriveItem.id)"
-        } catch {
-            Write-TaggedDocumentSyncLog -Message "Could not refresh download URL for '$($DriveItem.name)'; using existing URL. $($_.Exception.Message)" -Color DarkGray
-        }
-    }
-
-    $downloadUrl = $downloadItem.'@microsoft.graph.downloadUrl'
+    $downloadUrl = $DriveItem.'@microsoft.graph.downloadUrl'
     if ([string]::IsNullOrWhiteSpace([string]$downloadUrl)) {
         return $null
     }
@@ -2069,26 +2045,7 @@ function Save-TaggedDocumentSyncDriveItem {
 
     $safeName = Get-TaggedDocumentSyncSafePathName -Name $DriveItem.name -Fallback $DriveItem.id
     $targetPath = Join-Path $TargetDirectory $safeName
-    try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $targetPath -UseBasicParsing -ErrorAction Stop
-    } catch {
-        $statusCode = $null
-        try { $statusCode = [int]$_.Exception.Response.StatusCode } catch {}
-        if ($statusCode -notin @(401, 403) -or -not $Site -or -not $Drive -or [string]::IsNullOrWhiteSpace([string]$DriveItem.id)) {
-            throw
-        }
-
-        Write-TaggedDocumentSyncLog -Message "Download URL failed with HTTP $statusCode for '$($DriveItem.name)'. Refreshing token/download URL and retrying once." -Color Yellow
-        if (Get-Command Update-SharePointAccessToken -ErrorAction SilentlyContinue) {
-            $null = Get-TaggedDocumentSyncHeaders -Force
-        }
-        $downloadItem = Invoke-TaggedDocumentSyncGraphRequest -Uri "https://graph.microsoft.com/v1.0/sites/$($Site.id)/drives/$($Drive.id)/items/$($DriveItem.id)"
-        $downloadUrl = $downloadItem.'@microsoft.graph.downloadUrl'
-        if ([string]::IsNullOrWhiteSpace([string]$downloadUrl)) {
-            throw "A refreshed SharePoint download URL was not available for '$($DriveItem.name)'."
-        }
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $targetPath -UseBasicParsing -ErrorAction Stop
-    }
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $targetPath -UseBasicParsing
     return $targetPath
 }
 
@@ -2572,7 +2529,7 @@ function Get-TaggedDocumentSyncCreatedArticleContent {
     }
 
     try {
-        $localPath = Save-TaggedDocumentSyncDriveItem -DriveItem $DriveItem -TargetDirectory $DownloadDirectory -Site $Site -Drive $Drive
+        $localPath = Save-TaggedDocumentSyncDriveItem -DriveItem $DriveItem -TargetDirectory $DownloadDirectory
         if ([string]::IsNullOrWhiteSpace($localPath)) {
             throw 'The SharePoint file could not be downloaded for conversion.'
         }
@@ -3296,7 +3253,7 @@ foreach ($drive in @($drives)) {
                     foreach ($part in @($destinationPath)) {
                         $downloadDirectory = Join-Path $downloadDirectory (Get-TaggedDocumentSyncSafePathName -Name $part)
                     }
-                    $uploadPath = Save-TaggedDocumentSyncDriveItem -DriveItem $item -TargetDirectory $downloadDirectory -Site $site -Drive $drive
+                    $uploadPath = Save-TaggedDocumentSyncDriveItem -DriveItem $item -TargetDirectory $downloadDirectory
                     if ($uploadPath) {
                         $workingPathsToClean.Add($uploadPath)
                         $articleUploads = @(Add-TaggedDocumentSyncArticleUploads -ArticleId ([int]$existingArticleId) -FilePaths @($uploadPath) -UploadIndex $uploadIndex)
@@ -3375,7 +3332,7 @@ foreach ($drive in @($drives)) {
                 }
 
                 if ($UploadSourceFile -and $createUploadPaths.Count -lt 1) {
-                    $uploadPath = Save-TaggedDocumentSyncDriveItem -DriveItem $item -TargetDirectory $downloadDirectory -Site $site -Drive $drive
+                    $uploadPath = Save-TaggedDocumentSyncDriveItem -DriveItem $item -TargetDirectory $downloadDirectory
                     if ($uploadPath) {
                         $createUploadPaths += @($uploadPath)
                         $workingPathsToClean.Add($uploadPath)

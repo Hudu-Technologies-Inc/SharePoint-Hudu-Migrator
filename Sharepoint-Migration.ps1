@@ -28,7 +28,7 @@ foreach ($module in @("MSAL.PS")) {
 Set-Content -Path $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
 Set-PrintAndLog -message "Imported Hudu Module and authenticated / checked version... $(Set-HuduModuleInitialized -huduBaseurl $HuduBaseURL -huduAPIkey $HuduApiKey)" -Color DarkBlue
-$currentVersionResult = [version]$((get-huduappinfo).version); $DisallowedVersions = @([version]("2.37.0"), [version]("2.44.3")); if ($DisallowedVersions -contains [version]($currentVersionResult)) {write-host "disallowed version $($currentVersionResult); Please upgrade or downgrade if possible first." -ForegroundColor Red; exit 1;} else {write-host "$($currentVersionResult) is allowed!" -ForegroundColor Green};
+$currentVersionResult = $($currentVersionResult ?? $([version]((get-huduappinfo).version))); $MinAllowedVersion = ([version]"2.45.0"); $DisallowedVersions = @([version]("2.37.0")); if ($currentVersionResult -lt $MinAllowedVersion){Write-Host "Sorry, your Hudu version $currentVersionResult is not supported. You'll need to upgrade to $($MinAllowedVersion) in order to continue."; exit 1;}; if ($DisallowedVersions -contains [version]($currentVersionResult)) {write-host "disallowed version $($currentVersionResult); Please upgrade or downgrade if possible first." -ForegroundColor Red; exit 1;};
 if ($null -eq $clientId -or $null -eq $tenantId) {
     Set-PrintAndLog -message "No clientId or tenantId provided. Will attempt to create app registration for Sharepoint access." -Color Yellow
     $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId

@@ -112,8 +112,7 @@ Otherwise we just link to original file on SharePoint
 
 > '.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv'
 
-<img width="593" height="581" alt="image" src="https://github.com/user-attachments/assets/e8498671-7bf3-4235-beac-0cc48bae2bb4" />
-
+<img width="591" height="557" alt="image" src="https://github.com/user-attachments/assets/061c9936-e2a7-4b9b-87ae-fb5240c7bedf" />
 
 ###### ** Embeddable Media - Audio **
 
@@ -147,7 +146,7 @@ Paths containing literal wildcard characters, such as `[NEW CLIENT]`, are handle
 ### All others:
 #### All others will skip conversion process and will be uploaded directly if **under 100mb in size**. If they are **over 100mb in size**, we just create a stub article that has a link to the sharepoint file in question.
 
-All other non-document files skip conversion and are uploaded with a simple Hudu article containing file details.
+All other non-document files skip conversion if they don't fall into other categories and are uploaded with a simple Hudu article containing file details.
 <img width="723" height="45" alt="image" src="https://github.com/user-attachments/assets/619859ee-b367-483d-85ed-b2336f7eda34" />
 most common formats that we skip conversion for are:
 ```
@@ -162,6 +161,8 @@ Files that aren't traditional documents will have a page generated for them with
 ### If a file is too large after conversion (longer than 196000 characters or 100mb)
 if this condition is met, the original is uploaded in Hudu and Linked
  <img width="849" height="363" alt="image" src="https://github.com/user-attachments/assets/4354122b-2f97-41ce-b64e-9e0c6262072e" />
+
+## Advanced Usage
 
 #### Site Selection Filters
 
@@ -217,52 +218,6 @@ $SharePointClientAttributionFieldNames = @(
   "Company",
   "LinkTitle"
 )
-```
-
-When using the destination option "Match/Create one company per SharePoint site", client attribution is tried before site-name attribution by default. This helps prevent generic sites like `Calendar`, `Export`, or `Management` from becoming the company assignment when document/list metadata contains a better client signal.
-
-```powershell
-$SharePointPreferClientAttributionOverSiteCompany = $true
-```
-
-The script can also roll up list item metadata into per-site and per-list client designations. For example, if most items in a list have `Select a Client` set to `Jolly`, the list can inherit Jolly as its default company. If most matching client fields across a site point to the same company, documents in that site can inherit the site designation before falling back to broader path/title matching.
-
-```powershell
-$SharePointClientAttributionUseSiteDesignations = $true
-$SharePointClientAttributionUseListDesignations = $true
-$SharePointClientAttributionDesignationMinShare = 0.8
-$SharePointClientAttributionDesignationMinItems = 1
-```
-
-Designation maps are written to `logs\client-designation-map.json` for review. Raise `SharePointClientAttributionDesignationMinShare` for mixed-client sites/lists; lower it only when the source metadata is sparse but trustworthy.
-
-These thresholds control how confident matches need to be before auto-application. Raising them reduces false positives; lowering them increases automation.
-
-```powershell
-$SharePointClientAttributionMinScore = 95
-$SharePointClientAttributionMinGap = 5
-$SharePointClientAttributionListItemMinScore = 95
-$SharePointClientAttributionListItemMinGap = 3
-$SharePointClientAttributionCreateMissing = $false
-```
-
-Client attribution maps are cached in `logs\client-attribution-map.json`. If `clients.json` is newer than the cache, the map is rebuilt automatically. You can force a rebuild:
-
-```powershell
-$SharePointClientAttributionUseCachedMap = $true
-$SharePointClientAttributionForceRebuildMap = $true
-```
-
-#### Site Company Attribution
-
-The per-site destination mode can match SharePoint site names to Hudu companies, optionally creating missing companies. This is useful when each SharePoint site really represents one client. If client attribution is preferred, unmatched site names will not create companies automatically.
-
-```powershell
-$SharePointSiteCompanyMinScore = 95
-$SharePointSiteCompanyMinGap = 5
-$SharePointSiteCompanyCreateMissing = $true
-$SharePointSiteCompanyUseCachedMap = $true
-$SharePointSiteCompanyForceRebuildMap = $false
 ```
 
 #### Structured List JSON Export
@@ -328,6 +283,54 @@ $SharePointForceReimportSitePages = $true
 ```
 
 This is separate from `$SharePointSkipExistingArticles`, which controls the duplicate Hudu article title/org check.
+
+
+When using the destination option "Match/Create one company per SharePoint site", client attribution is tried before site-name attribution by default. This helps prevent generic sites like `Calendar`, `Export`, or `Management` from becoming the company assignment when document/list metadata contains a better client signal.
+
+```powershell
+$SharePointPreferClientAttributionOverSiteCompany = $true
+```
+
+The script can also roll up list item metadata into per-site and per-list client designations. For example, if most items in a list have `Select a Client` set to `Jolly`, the list can inherit Jolly as its default company. If most matching client fields across a site point to the same company, documents in that site can inherit the site designation before falling back to broader path/title matching.
+
+```powershell
+$SharePointClientAttributionUseSiteDesignations = $true
+$SharePointClientAttributionUseListDesignations = $true
+$SharePointClientAttributionDesignationMinShare = 0.8
+$SharePointClientAttributionDesignationMinItems = 1
+```
+
+Designation maps are written to `logs\client-designation-map.json` for review. Raise `SharePointClientAttributionDesignationMinShare` for mixed-client sites/lists; lower it only when the source metadata is sparse but trustworthy.
+
+These thresholds control how confident matches need to be before auto-application. Raising them reduces false positives; lowering them increases automation.
+
+```powershell
+$SharePointClientAttributionMinScore = 95
+$SharePointClientAttributionMinGap = 5
+$SharePointClientAttributionListItemMinScore = 95
+$SharePointClientAttributionListItemMinGap = 3
+$SharePointClientAttributionCreateMissing = $false
+```
+
+Client attribution maps are cached in `logs\client-attribution-map.json`. If `clients.json` is newer than the cache, the map is rebuilt automatically. You can force a rebuild:
+
+```powershell
+$SharePointClientAttributionUseCachedMap = $true
+$SharePointClientAttributionForceRebuildMap = $true
+```
+
+#### Site Company Attribution
+
+The per-site destination mode can match SharePoint site names to Hudu companies, optionally creating missing companies. This is useful when each SharePoint site really represents one client. If client attribution is preferred, unmatched site names will not create companies automatically.
+
+```powershell
+$SharePointSiteCompanyMinScore = 95
+$SharePointSiteCompanyMinGap = 5
+$SharePointSiteCompanyCreateMissing = $true
+$SharePointSiteCompanyUseCachedMap = $true
+$SharePointSiteCompanyForceRebuildMap = $false
+```
+
 
 #### External Article Images
 

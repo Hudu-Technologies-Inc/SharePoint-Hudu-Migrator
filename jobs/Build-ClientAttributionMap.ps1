@@ -79,7 +79,7 @@ if (
             $ClientDesignationMap |
                 Select-Object Sites, Lists |
                 ConvertTo-Json -Depth 20 |
-                Out-File -FilePath $RunSummary.OutputJsonFiles.ClientDesignationMap -Encoding UTF8
+                Out-File -LiteralPath $RunSummary.OutputJsonFiles.ClientDesignationMap -Encoding UTF8
             Set-PrintAndLog -message "Wrote client designation map: $($RunSummary.OutputJsonFiles.ClientDesignationMap)" -Color DarkMagenta
         }
         Set-PrintAndLog -message "Loaded cached SharePoint client attribution map: $($ClientAttributionMap.Count) item(s) from $($RunSummary.OutputJsonFiles.ClientAttributionMap)" -Color Cyan
@@ -181,7 +181,7 @@ if (
     $ClientDesignationMap |
         Select-Object Sites, Lists |
         ConvertTo-Json -Depth 20 |
-        Out-File -FilePath $RunSummary.OutputJsonFiles.ClientDesignationMap -Encoding UTF8
+        Out-File -LiteralPath $RunSummary.OutputJsonFiles.ClientDesignationMap -Encoding UTF8
     Set-PrintAndLog -message "Wrote client designation map: $($RunSummary.OutputJsonFiles.ClientDesignationMap)" -Color DarkMagenta
 }
 
@@ -192,7 +192,7 @@ Set-PrintAndLog -message "Client attribution map built from $clientAttributionSo
 
 $ClientAttributionMap |
     ConvertTo-Json -Depth 20 |
-    Out-File -FilePath $RunSummary.OutputJsonFiles.ClientAttributionMap -Encoding UTF8
+    Out-File -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionMap -Encoding UTF8
 
 $ClientAttributionMap |
     ForEach-Object {
@@ -215,7 +215,7 @@ $ClientAttributionMap |
             Candidate3Score   = @($_.TopCandidates | Select-Object -Skip 2 -First 1).Score
         }
     } |
-    Export-Csv -Path $RunSummary.OutputJsonFiles.ClientAttributionReview -NoTypeInformation -Encoding UTF8
+    Export-Csv -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionReview -NoTypeInformation -Encoding UTF8
 
 Set-PrintAndLog -message "Wrote client attribution map: $($RunSummary.OutputJsonFiles.ClientAttributionMap)" -Color DarkMagenta
 Set-PrintAndLog -message "Wrote client attribution review CSV: $($RunSummary.OutputJsonFiles.ClientAttributionReview)" -Color DarkMagenta

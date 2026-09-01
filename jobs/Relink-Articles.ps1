@@ -49,14 +49,7 @@ function Relink-DocumentUploads {
                 } |
                 Select-Object -First 1
         )[0]
-        $docAsAttachmentUrl = $docAsAttachment.MappedUrl ?? $docAsAttachment.url
-        if (-not $docAsAttachmentUrl -and $docAsAttachment.id) {
-            $docAsAttachmentUrl = if ($docAsAttachment.UploadType -eq 'image') {
-                "$HuduBaseURL/public_photo/$($docAsAttachment.id)"
-            } else {
-                "$HuduBaseURL/file/$($docAsAttachment.id)"
-            }
-        }
+        $docAsAttachmentUrl = Get-HuduUploadArticleUrl -Upload $docAsAttachment -UploadType $docAsAttachment.UploadType -OriginalFilename $originalFilename -HuduBaseUrl $HuduBaseURL
         $AttachmentMap = @{}
         foreach ($upload in $doc.UploadedFiles) {
             if (-not $upload.PSObject.Properties['ext']) {
@@ -80,14 +73,7 @@ function Relink-DocumentUploads {
                     $attachedSourceName = $attachedFile.OriginalFilename ?? $attachedFile.name ?? $attachedFile.filename
                     if ([string]::IsNullOrWhiteSpace([string]$attachedSourceName)) { continue }
                     $attachedfilenameOnly = [System.IO.Path]::GetFileName($attachedSourceName).ToLowerInvariant()
-                    $attachedUrl = $attachedFile.MappedUrl ?? $attachedFile.url
-                    if (-not $attachedUrl -and $attachedFile.id) {
-                        $attachedUrl = if ($attachedFile.UploadType -eq 'image') {
-                            "$HuduBaseURL/public_photo/$($attachedFile.id)"
-                        } else {
-                            "$HuduBaseURL/file/$($attachedFile.id)"
-                        }
-                    }
+                    $attachedUrl = Get-HuduUploadArticleUrl -Upload $attachedFile -UploadType $attachedFile.UploadType -OriginalFilename $attachedSourceName -HuduBaseUrl $HuduBaseURL
                     if ([string]::IsNullOrWhiteSpace([string]$attachedUrl)) { continue }
                     if ($link.ToLowerInvariant() -like "*$attachedfilenameOnly*") {
                         Set-PrintandLog -Message "linking attachment $($link.ToLowerInvariant()) => $attachedUrl via $attachedfilenameOnly"

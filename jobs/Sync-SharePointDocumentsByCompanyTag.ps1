@@ -2150,6 +2150,40 @@ function Get-TaggedDocumentSyncUploadUrl {
     )
 
     $upload = Get-TaggedDocumentSyncUploadObject -Upload $Upload
+    $extension = if (-not [string]::IsNullOrWhiteSpace($OriginalFilename)) {
+        [System.IO.Path]::GetExtension($OriginalFilename).TrimStart('.').ToLowerInvariant()
+    } else {
+        ""
+    }
+
+    if ($extension -in @('jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp')) {
+        $identifier = $upload.slug ?? $upload.Slug
+        if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+            $idCandidate = $upload.id ?? $upload.Id
+            if (-not [string]::IsNullOrWhiteSpace([string]$idCandidate) -and [string]$idCandidate -notmatch '^\d+$') {
+                $identifier = $idCandidate
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+            foreach ($propertyName in @('url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+                $property = $upload.PSObject.Properties[$propertyName]
+                if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+
+                $match = [regex]::Match([string]$property.Value, '(?i)/public_photos?/(?<identifier>[^/?#]+)')
+                if ($match.Success) {
+                    $identifier = $match.Groups['identifier'].Value
+                    break
+                }
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+            $identifier = $upload.id ?? $upload.Id ?? $upload.numeric_id ?? $upload.Numeric_Id ?? $upload.NumericId
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$identifier)) {
+            return "/public_photo/$identifier"
+        }
+    }
+
     foreach ($propertyName in @('url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
         $property = $upload.PSObject.Properties[$propertyName]
         if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
@@ -2160,13 +2194,7 @@ function Get-TaggedDocumentSyncUploadUrl {
     $id = $upload.id ?? $upload.Id
     if (-not $id) { return $null }
 
-    $extension = if (-not [string]::IsNullOrWhiteSpace($OriginalFilename)) {
-        [System.IO.Path]::GetExtension($OriginalFilename).TrimStart('.').ToLowerInvariant()
-    } else {
-        ""
-    }
-
-    if ($extension -in @('jpg', 'jpeg', 'png', 'webp')) {
+    if ($extension -in @('jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp')) {
         return "/public_photo/$id"
     }
 

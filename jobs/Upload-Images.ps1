@@ -77,12 +77,13 @@ foreach ($doc in $StubbedArticles) {
                     $HuduUpload = $HuduUpload.upload ?? $HuduUpload
                     $record.HuduUploadType = 'upload'
                 }
+                $mappedUrl = Get-HuduUploadArticleUrl -Upload $HuduUpload -UploadType $record.HuduUploadType -OriginalFilename $record.FileName -HuduBaseUrl $HuduBaseURL
 
                 $mapEntry=[PSCustomObject]@{
                     doc           = $doc.id
                     PageTitle     = $doc.title
                     LocalFile     = $record.FileName
-                    HuduUrl       = $HuduUpload.url
+                    HuduUrl       = $mappedUrl
                     HuduUploadId  = $HuduUpload.id
                 }
                 $AllNewLinks.Add($mapEntry)
@@ -92,7 +93,7 @@ foreach ($doc in $StubbedArticles) {
                     Type = $record.HuduUploadType
                 }
                 $HuduUpload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $record.FileName -Force
-                $HuduUpload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $HuduUpload.url -Force
+                $HuduUpload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $mappedUrl -Force
                 $HuduUpload | Add-Member -NotePropertyName UploadType -NotePropertyValue $record.HuduUploadType -Force
                 $doc.UploadedFiles.add($HuduUpload)                
 

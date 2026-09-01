@@ -522,7 +522,7 @@ function New-HuduInternalizedArticleImageUpload {
 
     $extension = [System.IO.Path]::GetExtension($FilePath).TrimStart('.').ToLowerInvariant()
 
-    if ($UsePublicPhotos -and $extension -match '^(jpg|jpeg|png|webp)$' -and (Get-Command New-HuduPublicPhoto -ErrorAction SilentlyContinue)) {
+    if ($UsePublicPhotos -and $extension -match '^(jpg|jpeg|png|gif|bmp|webp)$' -and (Get-Command New-HuduPublicPhoto -ErrorAction SilentlyContinue)) {
         $upload = New-HuduPublicPhoto -FilePath $FilePath -record_id $ArticleId -record_type 'Article'
         return ($upload.public_photo ?? $upload)
     }
@@ -538,6 +538,40 @@ function Get-HuduInternalizedImageUrl {
         [string]$FilePath
     )
 
+    $extension = if ($FilePath) { [System.IO.Path]::GetExtension($FilePath).TrimStart('.').ToLowerInvariant() } else { "" }
+    if ($extension -match '^(jpg|jpeg|png|gif|bmp|webp)$') {
+        if (Get-Command Get-HuduPublicPhotoLocalUrl -ErrorAction SilentlyContinue) {
+            $publicPhotoUrl = Get-HuduPublicPhotoLocalUrl -Upload $Upload
+            if ($publicPhotoUrl) { return $publicPhotoUrl }
+        }
+
+        $identifier = $Upload.slug ?? $Upload.Slug
+        if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+            $idCandidate = $Upload.id ?? $Upload.Id
+            if (-not [string]::IsNullOrWhiteSpace([string]$idCandidate) -and [string]$idCandidate -notmatch '^\d+$') {
+                $identifier = $idCandidate
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+            foreach ($propertyName in @('url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+                $property = $Upload.PSObject.Properties[$propertyName]
+                if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+
+                $match = [regex]::Match([string]$property.Value, '(?i)/public_photos?/(?<identifier>[^/?#]+)')
+                if ($match.Success) {
+                    $identifier = $match.Groups['identifier'].Value
+                    break
+                }
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+            $identifier = $Upload.id ?? $Upload.Id ?? $Upload.numeric_id ?? $Upload.Numeric_Id ?? $Upload.NumericId
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$identifier)) {
+            return "/public_photo/$identifier"
+        }
+    }
+
     $url = $Upload.url ?? $Upload.Url
     if (-not [string]::IsNullOrWhiteSpace([string]$url)) {
         return [string]$url
@@ -546,9 +580,8 @@ function Get-HuduInternalizedImageUrl {
     $id = $Upload.id ?? $Upload.Id
     if (-not $id) { return $null }
 
-    $extension = if ($FilePath) { [System.IO.Path]::GetExtension($FilePath).TrimStart('.').ToLowerInvariant() } else { "" }
-    if ($extension -match '^(jpg|jpeg|png|webp)$') {
-        return "$($HuduBaseUri.ToString().TrimEnd('/'))/public_photo/$id"
+    if ($extension -match '^(jpg|jpeg|png|gif|bmp|webp)$') {
+        return "/public_photo/$id"
     }
 
     return "$($HuduBaseUri.ToString().TrimEnd('/'))/file/$id"

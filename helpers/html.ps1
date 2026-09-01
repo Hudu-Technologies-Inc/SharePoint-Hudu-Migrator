@@ -84,7 +84,7 @@ function Get-GeneratedHTMLForImageFile {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile1
 }
 function Get-GeneratedAttachmentLinkLargeDocs {
@@ -133,7 +133,7 @@ function Get-GeneratedAttachmentLinkLargeDocs {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile
 }
 
@@ -170,7 +170,7 @@ function Get-GeneratedUploadAsFileHTML {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile
 }
 
@@ -242,7 +242,7 @@ function Get-DisallowedExtensionGeneratedHTML {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile
 }
 
@@ -366,6 +366,80 @@ function Get-LinksFromHTML {
 
     return $allLinks | Sort-Object -Unique
 }
+
+function Get-HuduPublicPhotoLocalUrl {
+    param ($Upload)
+
+    $photo = $Upload.public_photo ?? $Upload.PublicPhoto ?? $Upload
+    if (-not $photo) { return $null }
+
+    $identifier = $photo.slug ?? $photo.Slug
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $idCandidate = $photo.id ?? $photo.Id
+        if (-not [string]::IsNullOrWhiteSpace([string]$idCandidate) -and [string]$idCandidate -notmatch '^\d+$') {
+            $identifier = $idCandidate
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        foreach ($propertyName in @('url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+            $property = $photo.PSObject.Properties[$propertyName]
+            if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+
+            $match = [regex]::Match([string]$property.Value, '(?i)/public_photos?/(?<identifier>[^/?#]+)')
+            if ($match.Success) {
+                $identifier = $match.Groups['identifier'].Value
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $identifier = $photo.id ?? $photo.Id ?? $photo.numeric_id ?? $photo.Numeric_Id ?? $photo.NumericId
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) { return $null }
+
+    return "/public_photo/$identifier"
+}
+
+function Get-HuduUploadArticleUrl {
+    param (
+        $Upload,
+        [string]$UploadType,
+        [string]$OriginalFilename,
+        [string]$HuduBaseUrl
+    )
+
+    $upload = $Upload.public_photo ?? $Upload.upload ?? $Upload
+    if (-not $upload) { return $null }
+
+    $extension = if (-not [string]::IsNullOrWhiteSpace([string]$OriginalFilename)) {
+        [System.IO.Path]::GetExtension([string]$OriginalFilename).TrimStart('.').ToLowerInvariant()
+    } else {
+        ""
+    }
+    $isImage = $UploadType -eq 'image' -or $extension -in @('jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp')
+
+    if ($isImage) {
+        $publicPhotoUrl = Get-HuduPublicPhotoLocalUrl -Upload $upload
+        if ($publicPhotoUrl) { return $publicPhotoUrl }
+    }
+
+    foreach ($propertyName in @('MappedUrl', 'url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+        $property = $upload.PSObject.Properties[$propertyName]
+        if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            return [string]$property.Value
+        }
+    }
+
+    $id = $upload.id ?? $upload.Id
+    if (-not $id) { return $null }
+
+    if ([string]::IsNullOrWhiteSpace([string]$HuduBaseUrl)) {
+        return "/file/$id"
+    }
+
+    return "$($HuduBaseUrl.TrimEnd('/'))/file/$id"
+}
+
 function Replace-SharePointAttachmentTags {
     param(
         [string]$Html,
@@ -383,16 +457,7 @@ function Replace-SharePointAttachmentTags {
         $id = $upload.id
         $safeFilename = [regex]::Escape($filename)
 
-        $url = $upload.MappedUrl ?? $upload.url
-        if (-not $url -and $id) {
-            $url = "$HuduBaseUrl/file/$id"
-        }
-        $imgUrl = $upload.MappedUrl ?? $upload.url
-        if (-not $imgUrl -and $id) {
-            $imgUrl = "$HuduBaseUrl/public_photo/$id"
-        }
-
-        $replacementUrl = if ($ext -match '^(jpg|jpeg|png|gif|bmp|webp)$') { $imgUrl } else { $url }
+        $replacementUrl = Get-HuduUploadArticleUrl -Upload $upload -UploadType $upload.UploadType -OriginalFilename $upload.OriginalFilename -HuduBaseUrl $HuduBaseUrl
         if ([string]::IsNullOrWhiteSpace([string]$replacementUrl)) { continue }
 
         # Replace local attachment references without changing surrounding link/image markup.

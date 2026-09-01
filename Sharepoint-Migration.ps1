@@ -25,7 +25,7 @@ foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort
 foreach ($module in @("MSAL.PS")) {
     write-host "Installing, Updating, Importing module: $module. Please be patient..."  -ForegroundColor DarkBlue;  Update-Module $module -Force;  Install-Module $module -Scope CurrentUser -Force -AllowClobber; Import-Module $module;
 }
-Set-Content -Path $logFile -Value "Starting Sharepoint Migration" 
+Set-Content -LiteralPath $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
 Set-PrintAndLog -message "Imported Hudu Module and authenticated / checked version... $(Set-HuduModuleInitialized -huduBaseurl $HuduBaseURL -huduAPIkey $HuduApiKey)" -Color DarkBlue
 $currentVersionResult = $($currentVersionResult ?? $([version]((get-huduappinfo).version))); $MinAllowedVersion = ([version]"2.45.0"); $DisallowedVersions = @([version]("2.37.0")); if ($currentVersionResult -lt $MinAllowedVersion){Write-Host "Sorry, your Hudu version $currentVersionResult is not supported. You'll need to upgrade to $($MinAllowedVersion) in order to continue."; exit 1;}; if ($DisallowedVersions -contains [version]($currentVersionResult)) {write-host "disallowed version $($currentVersionResult); Please upgrade or downgrade if possible first." -ForegroundColor Red; exit 1;};
@@ -98,7 +98,7 @@ if ($RunSummary.SetupInfo.StructuredListJsonOnly) {
     $RunSummary.JobInfo.FinishedAt = Get-Date
     $RunSummary.JobInfo.RunDuration = New-TimeSpan -Start $RunSummary.JobInfo.StartedAt -End $RunSummary.JobInfo.FinishedAt
     Set-PrintAndLog -message "Structured list JSON only mode enabled; stopping before file conversion and article upload." -Color Green
-    $RunSummary | ConvertTo-Json -Depth 50 | Out-File -FilePath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
+    $RunSummary | ConvertTo-Json -Depth 50 | Out-File -LiteralPath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
     return
 }
 

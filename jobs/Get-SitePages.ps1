@@ -174,35 +174,67 @@ function ConvertTo-SharePointSitePageWebPartHtml {
 }
 
 function Get-SharePointSitePageWebPartsFromCanvasObject {
-    param ($Object)
+    param (
+        $Object,
+        [int]$MaxDepth = 64
+    )
 
     if ($null -eq $Object) { return @() }
 
     $found = [System.Collections.Generic.List[object]]::new()
+    $stack = [System.Collections.Generic.Stack[object]]::new()
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+    $warnedDepthLimit = $false
 
-    if ($Object -is [System.Collections.IEnumerable] -and -not ($Object -is [string])) {
-        foreach ($item in @($Object)) {
-            foreach ($webPart in @(Get-SharePointSitePageWebPartsFromCanvasObject -Object $item)) {
-                $found.Add($webPart)
+    $stack.Push([PSCustomObject]@{ Value = $Object; Depth = 0 })
+
+    while ($stack.Count -gt 0) {
+        $node = $stack.Pop()
+        $current = $node.Value
+        $depth = [int]$node.Depth
+
+        if ($null -eq $current) { continue }
+        if ($current -is [string] -or $current -is [System.ValueType]) { continue }
+        if ($depth -gt $MaxDepth) {
+            if (-not $warnedDepthLimit) {
+                Set-PrintAndLog -message "SharePoint site page canvas traversal hit depth limit ($MaxDepth); continuing with web parts found so far." -Color Yellow
+                $warnedDepthLimit = $true
             }
+            continue
         }
-        return @($found)
-    }
 
-    if (-not $Object.PSObject.Properties) { return @() }
+        try {
+            $referenceId = [System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($current)
+            if (-not $seen.Add($referenceId)) { continue }
+        } catch {}
 
-    $odataType = [string]$Object.'@odata.type'
-    if ($odataType -like "*WebPart" -or $Object.PSObject.Properties["innerHtml"] -or $Object.PSObject.Properties["webPartType"]) {
-        $found.Add($Object)
-    }
+        if ($current -is [System.Collections.IDictionary]) {
+            foreach ($value in @($current.Values)) {
+                $stack.Push([PSCustomObject]@{ Value = $value; Depth = ($depth + 1) })
+            }
+            continue
+        }
 
-    foreach ($property in @($Object.PSObject.Properties)) {
-        if ($property.Name -like "@odata*") { continue }
-        if ($null -eq $property.Value) { continue }
-        if ($property.Value -is [string] -or $property.Value -is [ValueType]) { continue }
+        if ($current -is [System.Collections.IEnumerable] -and -not ($current -is [string])) {
+            foreach ($item in @($current)) {
+                $stack.Push([PSCustomObject]@{ Value = $item; Depth = ($depth + 1) })
+            }
+            continue
+        }
 
-        foreach ($webPart in @(Get-SharePointSitePageWebPartsFromCanvasObject -Object $property.Value)) {
-            $found.Add($webPart)
+        if (-not $current.PSObject.Properties) { continue }
+
+        $odataType = [string]$current.'@odata.type'
+        if ($odataType -like "*WebPart" -or $current.PSObject.Properties["innerHtml"] -or $current.PSObject.Properties["webPartType"]) {
+            $found.Add($current)
+        }
+
+        foreach ($property in @($current.PSObject.Properties)) {
+            if ($property.Name -like "@odata*") { continue }
+            if ($null -eq $property.Value) { continue }
+            if ($property.Value -is [string] -or $property.Value -is [System.ValueType]) { continue }
+
+            $stack.Push([PSCustomObject]@{ Value = $property.Value; Depth = ($depth + 1) })
         }
     }
 

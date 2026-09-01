@@ -33,23 +33,36 @@ function Relink-DocumentUploads {
             $webViewUrl = @($doc.OriginalLinks)[0]
         }
 
-        $originalFilename = @($uploadedInfo | Where-Object { $_.OriginalFilename } | Select-Object -First 1).OriginalFilename
-        if (-not $originalFilename) {
-            $originalFilename = $doc.OriginalFilename ?? $doc.LocalPath
-        }
+        $originalFilename = $doc.OriginalFilename ?? $doc.LocalPath
         $filenameOnly = if ($originalFilename) {
             [System.IO.Path]::GetFileName($originalFilename).ToLowerInvariant()
         } else {
             ""
         }
 
-        $docAsAttachmentUrl = @($uploadedInfo | Where-Object { $_.url } | Select-Object -First 1).url
+        $docAsAttachment = @(
+            $uploadedInfo |
+                Where-Object {
+                    $uploadName = $_.OriginalFilename ?? $_.name ?? $_.filename
+                    $uploadFileName = if ($uploadName) { [System.IO.Path]::GetFileName([string]$uploadName).ToLowerInvariant() } else { "" }
+                    $filenameOnly -and $uploadFileName -eq $filenameOnly
+                } |
+                Select-Object -First 1
+        )[0]
+        $docAsAttachmentUrl = $docAsAttachment.MappedUrl ?? $docAsAttachment.url
+        if (-not $docAsAttachmentUrl -and $docAsAttachment.id) {
+            $docAsAttachmentUrl = if ($docAsAttachment.UploadType -eq 'image') {
+                "$HuduBaseURL/public_photo/$($docAsAttachment.id)"
+            } else {
+                "$HuduBaseURL/file/$($docAsAttachment.id)"
+            }
+        }
         $AttachmentMap = @{}
         foreach ($upload in $doc.UploadedFiles) {
             if (-not $upload.PSObject.Properties['ext']) {
                 $upload | Add-Member -NotePropertyName 'ext' -NotePropertyValue `
                     ([System.IO.Path]::GetExtension($upload.OriginalFilename).TrimStart('.')) -Force
-            }            
+            }
             $filename = [System.IO.Path]::GetFileName($upload.OriginalFilename).ToLowerInvariant()
             $AttachmentMap[$filename] = $upload
         }
@@ -64,10 +77,21 @@ function Relink-DocumentUploads {
                     $html = $html -replace [regex]::Escape($link), $docAsAttachmentUrl
                 }
                 foreach ($attachedFile in $doc.UploadedFiles){
-                    $attachedfilenameOnly = [System.IO.Path]::GetFileName($attachedFile.name).ToLowerInvariant()
+                    $attachedSourceName = $attachedFile.OriginalFilename ?? $attachedFile.name ?? $attachedFile.filename
+                    if ([string]::IsNullOrWhiteSpace([string]$attachedSourceName)) { continue }
+                    $attachedfilenameOnly = [System.IO.Path]::GetFileName($attachedSourceName).ToLowerInvariant()
+                    $attachedUrl = $attachedFile.MappedUrl ?? $attachedFile.url
+                    if (-not $attachedUrl -and $attachedFile.id) {
+                        $attachedUrl = if ($attachedFile.UploadType -eq 'image') {
+                            "$HuduBaseURL/public_photo/$($attachedFile.id)"
+                        } else {
+                            "$HuduBaseURL/file/$($attachedFile.id)"
+                        }
+                    }
+                    if ([string]::IsNullOrWhiteSpace([string]$attachedUrl)) { continue }
                     if ($link.ToLowerInvariant() -like "*$attachedfilenameOnly*") {
-                        Set-PrintandLog -Message "linking attachment $($link.ToLowerInvariant()) => $($attachedFile.url) via $attachedfilenameOnly"
-                        $html = $html -replace [regex]::Escape($link), $($attachedFile.url)
+                        Set-PrintandLog -Message "linking attachment $($link.ToLowerInvariant()) => $attachedUrl via $attachedfilenameOnly"
+                        $html = $html -replace [regex]::Escape($link), $attachedUrl
                     }
                 }
             }
@@ -84,30 +108,13 @@ function Relink-DocumentUploads {
 
 
         $doc.replacedContent =$updatedHTML
-        $updatedArticle = if ($null -ne $doc.companyId -and $doc.companyId -ge 1) {
-            Set-HuduArticle -id $doc.stub.id -content $updatedHTML -CompanyId $doc.companyId
-        } else {
-            Set-HuduArticle -id $doc.stub.id -content $updatedHTML
-        }
-        $updatedArticle = $updatedArticle.Article ?? $updatedArticle
-
-        if ($RunSummary.SetupInfo.ResumeFromState -and -not [string]::IsNullOrWhiteSpace([string]$doc.SourceKey)) {
-            $stateEntry = Write-SharePointMigrationStateEntry `
-                -Path $RunSummary.OutputJsonFiles.MigrationState `
-                -Item $doc `
-                -Status Completed `
-                -HuduType Article `
-                -HuduId ($updatedArticle.id ?? $doc.stub.id) `
-                -Message "Article relinked successfully"
-
-            $SharePointMigrationState[$doc.SourceKey] = $stateEntry
-        }
+        $doc | Add-Member -NotePropertyName FinalContent -NotePropertyValue $updatedHTML -Force
 
         # Save back
-        $doc.ReplacedLinks = Get-LinksFromHTML -htmlContent $updatedHTML -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $false
+        $doc | Add-Member -NotePropertyName ReplacedLinks -NotePropertyValue (Get-LinksFromHTML -htmlContent $updatedHTML -title ($doc.title ?? $doc.localpath) -includeImages $true -suppressOutput $false) -Force
         Save-HtmlSnapshot -PageId $doc.id -Title $doc.title -Content $updatedHTML -Suffix "relinked" -OutDir $tmpfolder
         Export-DocPropertyJson -Doc $doc -Property 'ReplacedLinks'
-        Set-PrintAndLog "Relinked HTML: $htmlPath" -Color Green
+        Set-PrintAndLog "Relinked HTML locally: $htmlPath" -Color Green
     }
 }
 Relink-DocumentUploads -docs @($stubbedArticles)

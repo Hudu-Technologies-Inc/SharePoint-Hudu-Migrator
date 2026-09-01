@@ -383,19 +383,24 @@ function Replace-SharePointAttachmentTags {
         $id = $upload.id
         $safeFilename = [regex]::Escape($filename)
 
-        $url = "$HuduBaseUrl/file/$id"
-        $imgUrl = "$HuduBaseUrl/public_photo/$id"
-
-        if ($ext -match '^(jpg|jpeg|png|webp)$') {
-            $replacement = "<a href='$imgUrl' target='_blank'><img src='$imgUrl' alt='$filename' /></a>"
-        } elseif ($ext -match '^(gif|bmp|svg)$') {
-            $replacement = "<a href='$url' target='_blank'><img src='$url' alt='$filename' /></a>"
-        } else {
-            $replacement = "<a href='$url'>$filename</a>"
+        $url = $upload.MappedUrl ?? $upload.url
+        if (-not $url -and $id) {
+            $url = "$HuduBaseUrl/file/$id"
+        }
+        $imgUrl = $upload.MappedUrl ?? $upload.url
+        if (-not $imgUrl -and $id) {
+            $imgUrl = "$HuduBaseUrl/public_photo/$id"
         }
 
-        # Replace anywhere in the HTML that matches this filename
-        $Html = [regex]::Replace($Html, $safeFilename, [regex]::Escape($replacement))
+        $replacementUrl = if ($ext -match '^(jpg|jpeg|png|gif|bmp|webp)$') { $imgUrl } else { $url }
+        if ([string]::IsNullOrWhiteSpace([string]$replacementUrl)) { continue }
+
+        # Replace local attachment references without changing surrounding link/image markup.
+        $attributePattern = '(?i)(?<prefix>\b(?:src|href)\s*=\s*["''])(?<value>[^"'']*' + $safeFilename + '[^"'']*)(?<suffix>["''])'
+        $Html = [regex]::Replace($Html, $attributePattern, {
+            param($match)
+            "$($match.Groups['prefix'].Value)$replacementUrl$($match.Groups['suffix'].Value)"
+        })
     }
 
     return $Html

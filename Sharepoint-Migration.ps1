@@ -176,14 +176,17 @@ function Invoke-SharePointMigrationFileBatch {
     Set-IncrementedState -newState "Determine Company Designations and Folder Structure - $BatchName"
     . .\jobs\Make-ArticleStubs.ps1
 
-    Set-IncrementedState -newState "Populate initial data into articles - $BatchName"
+    Set-IncrementedState -newState "Prepare article HTML locally - $BatchName"
     . .\jobs\Populate-Articles.ps1
 
     Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu - $BatchName"
     . .\jobs\Upload-Images.ps1
 
-    Set-IncrementedState -newState "Relink Articles - $BatchName"
+    Set-IncrementedState -newState "Relink article HTML locally - $BatchName"
     . .\jobs\Relink-Articles.ps1
+
+    Set-IncrementedState -newState "Commit final article HTML to Hudu - $BatchName"
+    . .\jobs\Commit-Articles.ps1
 
     if ($CleanupAfterBatch) {
         foreach ($site in @($Sites)) {

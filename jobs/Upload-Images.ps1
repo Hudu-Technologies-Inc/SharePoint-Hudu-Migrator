@@ -1,4 +1,5 @@
 $docIDX=0
+$HuduPublicPhotoExtensions = @(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
 foreach ($doc in $StubbedArticles) {
     $docIDX=$docIDX+1
     $completionPercentage = Get-PercentDone -Current $docIDX -Total $StubbedArticles.count
@@ -18,11 +19,12 @@ foreach ($doc in $StubbedArticles) {
         $exists = Test-Path -LiteralPath $localPath
         $fileSize       = if ($exists) { (Get-Item -LiteralPath $localPath).Length } else { 0 }
         $tooLarge       = [bool]$($exists -and $fileSize -ge 100MB)
-        $isImage        = [bool]$($att -match '\.(jpg|jpeg|png)$')
+        $extension      = [IO.Path]::GetExtension($att).ToLowerInvariant()
+        $isImage        = [bool]($HuduPublicPhotoExtensions -contains $extension)
 
         $record = [PSCustomObject]@{
             FileName           = $att
-            Extension          = [IO.Path]::GetExtension($att).ToLower()
+            Extension          = $extension
             IsImage            = $isImage
             PageId             = $doc.id
             PageTitle          = $doc.title
@@ -69,9 +71,11 @@ foreach ($doc in $StubbedArticles) {
                 if ($record.IsImage) {
                     $HuduUpload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'))
                     $HuduUpload = $HuduUpload.public_photo ?? $HuduUpload
+                    $record.HuduUploadType = 'image'
                 } else {
                     $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
                     $HuduUpload = $HuduUpload.upload ?? $HuduUpload
+                    $record.HuduUploadType = 'upload'
                 }
 
                 $mapEntry=[PSCustomObject]@{
@@ -85,7 +89,7 @@ foreach ($doc in $StubbedArticles) {
                 $normalizedFileName = $record.FileName.ToLowerInvariant()
                 $ImageMap[$normalizedFileName] = @{
                     Id   = $HuduUpload.id
-                    Type = if ($record.IsImage) { 'image' } else { 'upload' }
+                    Type = $record.HuduUploadType
                 }
                 $HuduUpload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $record.FileName -Force
                 $HuduUpload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $HuduUpload.url -Force
@@ -93,7 +97,6 @@ foreach ($doc in $StubbedArticles) {
                 $doc.UploadedFiles.add($HuduUpload)                
 
                 $record.UploadResult    = $HuduUpload
-                $record.HuduUploadType  = $ImageMap[$normalizedFileName].Type
                 $record.HuduArticleId   = $($doc.stub).id
                 $RunSummary.JobInfo.UploadsCreated += 1
             } catch {

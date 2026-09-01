@@ -41,7 +41,7 @@ foreach ($doc in $StubbedArticles) {
             Doc        = "SharePoint item with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? $doc.webViewUrl ?? '')"
             ArticleURL = $doc.stub.url ?? "URL not found"
         }
-        $RunSummary.Errors.Add($errorInfo)
+        Add-RunSummaryError -ErrorObject $errorInfo
         $RunSummary.JobInfo.ArticlesErrored += 1
         Write-ErrorObjectsToFile -name "finalarticle-$($doc.title)" -ErrorObject $errorInfo
         continue

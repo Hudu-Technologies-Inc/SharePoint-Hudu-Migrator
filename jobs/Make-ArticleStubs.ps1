@@ -148,7 +148,7 @@ foreach ($doc in $docsToStub) {
 
             $doc | Add-Member -NotePropertyName ExistingHuduArticle -NotePropertyValue $existingArticle -Force
             $RunSummary.JobInfo.ArticlesSkipped++
-            $RunSummary.Warnings += @{
+            Add-RunSummaryWarning -Warning @{
                 Message       = "Skipped SharePoint file because matching Hudu article already exists"
                 Title         = $doc.title
                 CompanyId     = $doc.CompanyId
@@ -215,7 +215,7 @@ foreach ($doc in $docsToStub) {
     }
     elseif ($doc.CompanyId -lt 0) {
         Set-PrintAndLog -message "Skipping doc/article transfer for $($doc.title)" -Color Gray
-        $RunSummary.Warnings += @{
+        Add-RunSummaryWarning -Warning @{
             Message     = "User elected to skip doc/article transfer for $($doc.title)"
             docSkipped  = "doc with ID $($doc.id), titled $($doc.title) was skipped. $($doc.FullUrl ?? '')"
         }
@@ -235,7 +235,7 @@ foreach ($doc in $docsToStub) {
             Error = "Error stubbing article with id $($doc.id), title $($doc.title)"
         }
         Write-ErrorObjectsToFile -name "Stub-$($doc.title)" -ErrorObject $ErrorObject
-        $RunSummary.Errors.Add($ErrorObject)
+        Add-RunSummaryError -ErrorObject $ErrorObject
         $RunSummary.JobInfo.ArticlesErrored++
         continue
     }

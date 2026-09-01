@@ -208,11 +208,11 @@ if ($RunSummary.SetupInfo.LowDiskMode) {
             $drives = @(Get-GraphSiteDrives -siteId $site.id)
         } catch {
             Set-PrintAndLog -message "Failed to enumerate drives for site $($site.name): $($_.Exception.Message)" -Color Red
-            $RunSummary.Errors.Add(@{
+            Add-RunSummaryError -ErrorObject @{
                 Site  = $site.name
                 Error = $_.Exception.Message
                 Step  = "Enumerate site drives"
-            })
+            }
             continue
         }
 
@@ -224,12 +224,12 @@ if ($RunSummary.SetupInfo.LowDiskMode) {
                 $rootItems = @(Get-GraphDriveChildItems -siteId $site.id -driveId $drive.id -folderId 'root')
             } catch {
                 Set-PrintAndLog -message "Failed to enumerate root items for drive $($drive.name) in site $($site.name): $($_.Exception.Message)" -Color Red
-                $RunSummary.Errors.Add(@{
+                Add-RunSummaryError -ErrorObject @{
                     Site  = $site.name
                     Drive = $drive.name
                     Error = $_.Exception.Message
                     Step  = "Enumerate drive root items"
-                })
+                }
                 continue
             }
 
@@ -282,7 +282,7 @@ foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
         Get-ChildItem -Path $folder -File -Recurse -Force | Remove-Item -Force -ErrorAction Stop
     } catch {
         Set-PrintAndLog -message "Failed to clear $folder $($_.Exception.Message)" -Color Red
-        $RunSummary.Errors += @{
+        Add-RunSummaryError -ErrorObject @{
             Folder = $folder
             Error  = $_.Exception.Message
         }

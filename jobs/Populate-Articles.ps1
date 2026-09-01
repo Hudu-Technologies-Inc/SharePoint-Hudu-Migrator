@@ -59,11 +59,11 @@ foreach ($doc in $StubbedArticles) {
 
     if ($true -eq $UploadedAsDoc) {
         # Add a warning for articles that are too large being uploaded as linked standalone file
-        $RunSummary.Warnings.add(@{
+        Add-RunSummaryWarning -Warning @{
             Warning="Document from page $($doc.title) was too large and was uploaded as standalone HTML File; Please review."
             ArticleURL=$doc.stub.url ?? "URL not found"
             PageURL=$doc.FullUrl
-        })
+        }
         continue
     }
     Write-Progress -Activity "Processing content for $($doc.title)" -Status "$completionPercentage%" -PercentComplete $completionPercentage

@@ -70,11 +70,11 @@ foreach ($site in @($userSelectedSites)) {
             }
         } catch {
             $status = 'CreateFailed'
-            $RunSummary.Errors.Add(@{
+            Add-RunSummaryError -ErrorObject @{
                 Step = 'Build site company map'
                 Site = $siteCompanyName
                 Error = $_.Exception.Message
-            })
+            }
             Set-PrintAndLog -message "Failed to create Hudu company for SharePoint site '$siteCompanyName': $($_.Exception.Message)" -Color Red
         }
     }

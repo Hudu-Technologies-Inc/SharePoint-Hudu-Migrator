@@ -48,13 +48,13 @@ foreach ($doc in $StubbedArticles) {
                 Article    = "Hudu stub with id $($($doc.stub).id) at $($($doc.stub).url)"
             }
             Write-ErrorObjectsToFile -ErrorObject $errorObject -name "Nofile-$($att)" -color Red
-            $RunSummary.Errors += $errorObject
+            Add-RunSummaryError -ErrorObject $errorObject
             continue
         }
         # handle attachment is too large
         if ($true -eq $record.AttachmentTooLarge) {
             Set-PrintAndLog -Message "Attachment is 100 MB or larger; skipping Hudu upload and relying on SharePoint link: $localPath" -Color Yellow
-            $RunSummary.Warnings += @{
+            Add-RunSummaryWarning -Warning @{
                 Attachment = "$att"
                 Warning    = "$($record.Filename) is 100 MB or larger and was not uploaded to Hudu."
                 doc        = "$($doc.title), $($doc.id)"
@@ -108,7 +108,7 @@ foreach ($doc in $StubbedArticles) {
                     Article     = "Hudu Article id $($doc.stub.id) at $($doc.stub.url)"
                     Doc         = "Sharepoint doc with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? '')"
                 }
-                $RunSummary.Errors.add($ErrorInfo)
+                Add-RunSummaryError -ErrorObject $ErrorInfo
                 $RunSummary.JobInfo.UploadsErrored+=1
                 Write-ErrorObjectsToFile -Name "uploaderr-$($record.FileName)" -ErrorObject $ErrorInfo
             }

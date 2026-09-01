@@ -340,11 +340,11 @@ foreach ($site in $sourceSites) {
         $pages = @(Get-SharePointSitePageCollection -SiteId $siteId)
     } catch {
         Set-PrintAndLog -message "Failed to list SharePoint site pages for '$siteName': $($_.Exception.Message)" -Color Red
-        $RunSummary.Errors.Add(@{
+        Add-RunSummaryError -ErrorObject @{
             Site  = $siteName
             Error = $_.Exception.Message
             Step  = "List SharePoint site pages"
-        })
+        }
         continue
     }
 

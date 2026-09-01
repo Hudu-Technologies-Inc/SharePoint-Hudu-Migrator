@@ -242,7 +242,7 @@ foreach ($group in $indexGroups) {
     $companyId = Get-IndexOnlyCompanyId -RelativeFolderPath $relativeFolderPath -Files $files
     if ($null -ne $companyId -and $companyId -lt 0) {
         Set-PrintAndLog -message "Skipping index-only folder: $relativeFolderPath" -Color Gray
-        $RunSummary.Warnings += @{
+        Add-RunSummaryWarning -Warning @{
             Message = "User elected to skip index-only folder"
             Folder  = $relativeFolderPath
         }
@@ -260,7 +260,7 @@ foreach ($group in $indexGroups) {
             Set-PrintAndLog -message "Skipping index-only article '$articleTitle' because Hudu article already exists in target company/global KB: $existingArticleUrl" -Color Yellow
 
             $RunSummary.JobInfo.ArticlesSkipped++
-            $RunSummary.Warnings += @{
+            Add-RunSummaryWarning -Warning @{
                 Message     = "Skipped index-only folder because matching Hudu article already exists"
                 Title       = $articleTitle
                 CompanyId   = $companyId
@@ -327,7 +327,7 @@ foreach ($group in $indexGroups) {
             Folder = $relativeFolderPath
         }
         Write-ErrorObjectsToFile -name "IndexOnlyStub-$articleTitle" -ErrorObject $errorObject
-        [void]$RunSummary.Errors.Add($errorObject)
+        Add-RunSummaryError -ErrorObject $errorObject
         $RunSummary.JobInfo.ArticlesErrored++
         continue
     }
@@ -382,7 +382,7 @@ foreach ($group in $indexGroups) {
                 File    = $file.LocalPath
                 Article = "Hudu article id $($stub.id) at $($stub.url)"
             }
-            [void]$RunSummary.Errors.Add($errorObject)
+            Add-RunSummaryError -ErrorObject $errorObject
             $RunSummary.JobInfo.UploadsErrored++
             Write-ErrorObjectsToFile -Name "IndexOnlyUpload-$($file.title)" -ErrorObject $errorObject
         }
@@ -403,7 +403,7 @@ foreach ($group in $indexGroups) {
             Article = "Hudu article id $($stub.id) at $($stub.url)"
             Folder  = $relativeFolderPath
         }
-        [void]$RunSummary.Errors.Add($errorObject)
+        Add-RunSummaryError -ErrorObject $errorObject
         $RunSummary.JobInfo.ArticlesErrored++
         Write-ErrorObjectsToFile -Name "IndexOnlyArticle-$articleTitle" -ErrorObject $errorObject
         continue

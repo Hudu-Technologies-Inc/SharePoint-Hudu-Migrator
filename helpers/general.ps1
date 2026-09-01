@@ -21,6 +21,59 @@ function Export-DocPropertyJson {
 
     return $outPath
 }
+
+function Add-RunSummaryCollectionItem {
+    param (
+        [Parameter(Mandatory)]
+        [ValidateSet('Warnings', 'Errors')]
+        [string]$CollectionName,
+
+        [Parameter(Mandatory)]
+        [object]$Item
+    )
+
+    if ($null -eq $RunSummary) { return }
+
+    $collection = if ($RunSummary -is [hashtable]) {
+        $RunSummary[$CollectionName]
+    } elseif ($RunSummary.PSObject.Properties[$CollectionName]) {
+        $RunSummary.$CollectionName
+    } else {
+        $null
+    }
+
+    if ($collection -is [System.Collections.IList] -and -not $collection.IsFixedSize) {
+        [void]$collection.Add($Item)
+        return
+    }
+
+    $newCollection = [System.Collections.ArrayList]@()
+    if ($null -ne $collection) {
+        foreach ($existingItem in @($collection)) {
+            [void]$newCollection.Add($existingItem)
+        }
+    }
+    [void]$newCollection.Add($Item)
+
+    if ($RunSummary -is [hashtable]) {
+        $RunSummary[$CollectionName] = $newCollection
+    } else {
+        $RunSummary | Add-Member -NotePropertyName $CollectionName -NotePropertyValue $newCollection -Force
+    }
+}
+
+function Add-RunSummaryWarning {
+    param ([Parameter(Mandatory)][object]$Warning)
+
+    Add-RunSummaryCollectionItem -CollectionName 'Warnings' -Item $Warning
+}
+
+function Add-RunSummaryError {
+    param ([Parameter(Mandatory)][object]$ErrorObject)
+
+    Add-RunSummaryCollectionItem -CollectionName 'Errors' -Item $ErrorObject
+}
+
 function Write-ErrorObjectsToFile {
     param (
         [Parameter(Mandatory)]

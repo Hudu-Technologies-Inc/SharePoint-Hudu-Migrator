@@ -112,17 +112,17 @@ Otherwise we just link to original file on SharePoint
 
 > '.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv'
 
-<img width="591" height="557" alt="image" src="https://github.com/user-attachments/assets/061c9936-e2a7-4b9b-87ae-fb5240c7bedf" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/061c9936-e2a7-4b9b-87ae-fb5240c7bedf" />
 
 ###### ** Embeddable Media - Audio **
 
 > '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.flac', '.weba'
 
-<img width="1108" height="476" alt="image" src="https://github.com/user-attachments/assets/42923611-3df5-4af4-9b41-5035147bdad2" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/610e4d9e-3163-496a-bf9b-69312f64a6ba" />
 
 ###### ** Embeddable Media - Images **
 
-<img width="872" height="641" alt="image" src="https://github.com/user-attachments/assets/7bf19371-6c45-42bf-b783-9fef4d45acc9" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/bea1e0f0-86e3-40bc-a6d4-328ad689b75b" />
 
 
 ###### ** Directory Listing **

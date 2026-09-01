@@ -87,6 +87,108 @@ function Get-GeneratedHTMLForImageFile {
     Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile1
 }
+
+function Get-HuduEmbeddableUploadMediaKind {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($extension -in @('.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi', '.wmv', '.flv')) { return 'Video' }
+    if ($extension -in @('.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.flac', '.weba', '.wma')) { return 'Audio' }
+
+    return $null
+}
+
+function Get-HuduMediaMimeType {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    switch ([System.IO.Path]::GetExtension($Path).ToLowerInvariant()) {
+        '.mp4'  { return 'video/mp4' }
+        '.m4v'  { return 'video/mp4' }
+        '.webm' { return 'video/webm' }
+        '.ogv'  { return 'video/ogg' }
+        '.mov'  { return 'video/quicktime' }
+        '.mkv'  { return 'video/x-matroska' }
+        '.avi'  { return 'video/x-msvideo' }
+        '.wmv'  { return 'video/x-ms-wmv' }
+        '.flv'  { return 'video/x-flv' }
+        '.mp3'  { return 'audio/mpeg' }
+        '.m4a'  { return 'audio/mp4' }
+        '.aac'  { return 'audio/aac' }
+        '.wav'  { return 'audio/wav' }
+        '.ogg'  { return 'audio/ogg' }
+        '.oga'  { return 'audio/ogg' }
+        '.opus' { return 'audio/ogg' }
+        '.flac' { return 'audio/flac' }
+        '.weba' { return 'audio/webm' }
+        '.wma'  { return 'audio/x-ms-wma' }
+    }
+
+    return $null
+}
+
+function Get-GeneratedHTMLForMediaFile {
+    param (
+        [Parameter(Mandatory)]
+        [PSCustomObject]$sourceFile,
+
+        [Parameter(Mandatory)]
+        [string]$outputFile
+    )
+
+    $filename = [System.IO.Path]::GetFileName($sourceFile.LocalPath)
+    $safeFilename = [System.Web.HttpUtility]::HtmlAttributeEncode($filename)
+    $title = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
+    $site = [System.Web.HttpUtility]::HtmlEncode($sourceFile.SiteName)
+    $mediaKind = Get-HuduEmbeddableUploadMediaKind -Path $sourceFile.LocalPath
+    $mimeType = Get-HuduMediaMimeType -Path $sourceFile.LocalPath
+    $safeMimeType = [System.Web.HttpUtility]::HtmlAttributeEncode($mimeType)
+
+    $mediaHtml = if ($mediaKind -eq 'Video') {
+@"
+  <video controls="controls" preload="metadata" width="640" style="max-width: 100%; height: auto;">
+    <source src="$safeFilename" type="$safeMimeType" />
+    <a href="$safeFilename">Download $title</a>
+  </video>
+"@
+    } else {
+@"
+  <audio controls="controls" preload="metadata" style="width: 100%;">
+    <source src="$safeFilename" type="$safeMimeType" />
+    <a href="$safeFilename">Download $title</a>
+  </audio>
+"@
+    }
+
+    $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+</head>
+<body>
+  <h1>$title</h1>
+  $mediaHtml
+  <p>
+    <strong>Site:</strong> $site<br />
+    <strong>File:</strong> $filename
+  </p>
+  $SHAREPOINT_URL_DELIMITER
+  <p>$HUDU_LOCALATTACHMENT_DELIMITER</p>
+</body>
+</html>
+"@
+
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
+    return $outputFile
+}
+
 function Get-GeneratedAttachmentLinkLargeDocs {
     param (
         [Parameter(Mandatory)]
@@ -421,6 +523,14 @@ function Get-HuduUploadArticleUrl {
     if ($isImage) {
         $publicPhotoUrl = Get-HuduPublicPhotoLocalUrl -Upload $upload
         if ($publicPhotoUrl) { return $publicPhotoUrl }
+    }
+
+    $isEmbeddableMedia = $UploadType -in @('audio', 'video') -or $extension -in @('mp4', 'm4v', 'webm', 'ogv', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'opus', 'flac', 'weba', 'wma')
+    if ($isEmbeddableMedia) {
+        $id = $upload.id ?? $upload.Id
+        if (-not [string]::IsNullOrWhiteSpace([string]$id)) {
+            return "/file/$id"
+        }
     }
 
     foreach ($propertyName in @('MappedUrl', 'url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {

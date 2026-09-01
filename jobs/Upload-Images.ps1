@@ -21,11 +21,13 @@ foreach ($doc in $StubbedArticles) {
         $tooLarge       = [bool]$($exists -and $fileSize -ge 100MB)
         $extension      = [IO.Path]::GetExtension($att).ToLowerInvariant()
         $isImage        = [bool]($HuduPublicPhotoExtensions -contains $extension)
+        $mediaKind      = Get-HuduEmbeddableUploadMediaKind -Path $att
 
         $record = [PSCustomObject]@{
             FileName           = $att
             Extension          = $extension
             IsImage            = $isImage
+            MediaKind          = $mediaKind
             PageId             = $doc.id
             PageTitle          = $doc.title
             SourceUrl          = $null
@@ -72,6 +74,10 @@ foreach ($doc in $StubbedArticles) {
                     $HuduUpload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'))
                     $HuduUpload = $HuduUpload.public_photo ?? $HuduUpload
                     $record.HuduUploadType = 'image'
+                } elseif ($record.MediaKind) {
+                    $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
+                    $HuduUpload = $HuduUpload.upload ?? $HuduUpload
+                    $record.HuduUploadType = ([string]$record.MediaKind).ToLowerInvariant()
                 } else {
                     $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
                     $HuduUpload = $HuduUpload.upload ?? $HuduUpload

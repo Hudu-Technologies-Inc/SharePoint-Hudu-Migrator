@@ -287,6 +287,22 @@ function ConvertDownloadedFiles {
                 $convertedbatch.Add($file) | Out-Null
                 continue
             }
+            $mediaKind = Get-HuduEmbeddableUploadMediaKind -Path $file.LocalPath
+            if ($mediaKind) {
+                Set-PrintAndLog -message "$mediaKind extension: $extension - generating embeddable media HTML." -Color Yellow
+                $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-gen-media.html"
+                Get-GeneratedHTMLForMediaFile -sourceFile $file -outputFile $file.NewPath
+                $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw
+                $file.ReplacedContent = $file.RawContent
+                $file.SuccessConverted = $false
+                $file.UsingGeneratedHTML = $true
+                $file | Add-Member -NotePropertyName EmbeddableMediaKind -NotePropertyValue $mediaKind -Force
+                $file | Add-Member -NotePropertyName ExternalEmbeddedFiles -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName Base64EmbeddedImages  -NotePropertyValue ([System.Collections.ArrayList]@()) -Force
+                $file | Add-Member -NotePropertyName AllAttachments -NotePropertyValue @($file.LocalPath) -Force
+                $convertedbatch.Add($file) | Out-Null
+                continue
+            }
             # images as sharepoint file download
             if ($EmbeddableImageExtensions -contains $extension){
                 Set-PrintAndLog -message "Image extension: $extension — generating user-friendly HTML." -Color Yellow

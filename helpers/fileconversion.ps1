@@ -290,6 +290,14 @@ function ConvertDownloadedFiles {
             $mediaKind = Get-HuduEmbeddableUploadMediaKind -Path $file.LocalPath
             if ($mediaKind) {
                 Set-PrintAndLog -message "$mediaKind extension: $extension - generating embeddable media HTML." -Color Yellow
+                $mediaTitle = if (-not [string]::IsNullOrWhiteSpace([string]$file.OriginalFilename)) {
+                    [System.IO.Path]::GetFileName([string]$file.OriginalFilename)
+                } else {
+                    [System.IO.Path]::GetFileName([string]$file.LocalPath)
+                }
+                if (-not [string]::IsNullOrWhiteSpace($mediaTitle)) {
+                    $file.title = $mediaTitle
+                }
                 $file.NewPath = Join-Path $outputDir "$([System.IO.Path]::GetFileNameWithoutExtension($file.localpath))-gen-media.html"
                 Get-GeneratedHTMLForMediaFile -sourceFile $file -outputFile $file.NewPath
                 $file.RawContent = Get-Content -LiteralPath $file.NewPath -Raw

@@ -502,6 +502,39 @@ function Get-HuduPublicPhotoLocalUrl {
     return "/public_photo/$identifier"
 }
 
+function Get-HuduFileLocalUrl {
+    param ($Upload)
+
+    $file = $Upload.upload ?? $Upload
+    if (-not $file) { return $null }
+
+    $identifier = $file.slug ?? $file.Slug
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $idCandidate = $file.id ?? $file.Id
+        if (-not [string]::IsNullOrWhiteSpace([string]$idCandidate) -and [string]$idCandidate -notmatch '^\d+$') {
+            $identifier = $idCandidate
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        foreach ($propertyName in @('MappedUrl', 'url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+            $property = $file.PSObject.Properties[$propertyName]
+            if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+
+            $match = [regex]::Match([string]$property.Value, '(?i)/files?/(?<identifier>[^/?#]+)')
+            if ($match.Success) {
+                $identifier = $match.Groups['identifier'].Value
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $identifier = $file.id ?? $file.Id ?? $file.numeric_id ?? $file.Numeric_Id ?? $file.NumericId
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) { return $null }
+
+    return "/file/$identifier"
+}
+
 function Get-HuduUploadArticleUrl {
     param (
         $Upload,
@@ -525,13 +558,8 @@ function Get-HuduUploadArticleUrl {
         if ($publicPhotoUrl) { return $publicPhotoUrl }
     }
 
-    $isEmbeddableMedia = $UploadType -in @('audio', 'video') -or $extension -in @('mp4', 'm4v', 'webm', 'ogv', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'opus', 'flac', 'weba', 'wma')
-    if ($isEmbeddableMedia) {
-        $id = $upload.id ?? $upload.Id
-        if (-not [string]::IsNullOrWhiteSpace([string]$id)) {
-            return "/file/$id"
-        }
-    }
+    $fileUrl = Get-HuduFileLocalUrl -Upload $upload
+    if ($fileUrl) { return $fileUrl }
 
     foreach ($propertyName in @('MappedUrl', 'url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
         $property = $upload.PSObject.Properties[$propertyName]

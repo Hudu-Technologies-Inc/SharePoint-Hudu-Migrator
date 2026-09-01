@@ -122,7 +122,7 @@ Otherwise we just link to original file on SharePoint
 
 ###### ** Embeddable Media - Images **
 
-<img width="800" alt="image" src="https://github.com/user-attachments/assets/bea1e0f0-86e3-40bc-a6d4-328ad689b75b" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/85782a8c-7b26-4f62-84f9-84d08b827074" />
 
 
 ###### ** Directory Listing **

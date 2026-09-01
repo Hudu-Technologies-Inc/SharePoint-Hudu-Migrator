@@ -63,24 +63,78 @@ $SharePointSkipExistingArticles = $true
 
 When the destination company can be resolved without prompting, this check runs immediately after SharePoint discovery so matching files are removed before conversion, indexing, stubbing, image upload, or article population. Skipped files are still written to the resume state, so reinvoking the migration does not reprocess them.
 
-#### Site Selection Filters
 
-You can hide known-unwanted SharePoint sites from the selection prompts and from "all sites" runs. Matching is case/punctuation-insensitive and checks both SharePoint `displayName` and `name`.
+## Supported Files?
 
-```powershell
-$SharePointSiteSkipNames = @(
-  "Archive",
-  "Old Client Portal"
-)
+All files can be added if they are either
+-under 100mb in size
+-under 196000 Characters long when converted to html
+
+Otherwise we just link to original file on SharePoint
+
+### Document files
+#### work nicely and any of the below should convert nicely:
+```
+- ".pdf"
+- ".doc"
+- ".docx"
+- ".docm"
+- ".rtf"
+- ".txt"
+- ".md"
+- ".wpd"
+- ".odt"
 ```
 
-#### File Conversion Controls
+### Spreadsheets and Tabular Data
+#### can be converted if you like, but any formulae will be replaced. If you plan on editing tabular data frequently, you might elect to not convert these"
+```
+- ".xls"
+- ".xlsx"
+- ".csv"
+- ".ods"
+```
 
-Some file types can be grouped into folder-level Hudu file index articles instead of becoming one article per file.
+### Powerpoints and Presentations
+#### These can be converted to a simplified html equivilent. Each slide has it's data / images extracted
+```
+- ".ppt"
+- ".pptx"
+- ".pptm"
+- ".odp"
+```
+
+### Media Files:
+
+ determine if an article, represented by a file, contains embeddable media, like video, audio, a scriptblock, or image, and create the article around presenting that. These formats are treated as embeddable media:
+
+###### ** Embeddable Media - Video **
+
+> '.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv'
+
+<img width="593" height="581" alt="image" src="https://github.com/user-attachments/assets/e8498671-7bf3-4235-beac-0cc48bae2bb4" />
+
+
+###### ** Embeddable Media - Audio **
+
+> '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.flac', '.weba'
+
+<img width="1108" height="476" alt="image" src="https://github.com/user-attachments/assets/42923611-3df5-4af4-9b41-5035147bdad2" />
+
+###### ** Embeddable Media - Images **
+
+<img width="872" height="641" alt="image" src="https://github.com/user-attachments/assets/7bf19371-6c45-42bf-b783-9fef4d45acc9" />
+
+
+###### ** Directory Listing **
+
+Some file types can be grouped into folder-level Hudu file index articles instead of becoming one article per file. This determination is made after we determine if the file itself contains embeddable media.
 
 ```powershell
 $SharePointIndexOnlyExtensions = @(".eps", ".ai", ".psd", ".indd")
 ```
+
+###### ** PDF Documents **
 
 PDFs can also be attached to generated stub articles instead of converted to HTML.
 
@@ -89,6 +143,36 @@ $SharePointPdfUploadAsFile = $true
 ```
 
 Paths containing literal wildcard characters, such as `[NEW CLIENT]`, are handled with literal path checks during conversion, reading, and attachment upload.
+
+### All others:
+#### All others will skip conversion process and will be uploaded directly if **under 100mb in size**. If they are **over 100mb in size**, we just create a stub article that has a link to the sharepoint file in question.
+
+All other non-document files skip conversion and are uploaded with a simple Hudu article containing file details.
+<img width="723" height="45" alt="image" src="https://github.com/user-attachments/assets/619859ee-b367-483d-85ed-b2336f7eda34" />
+most common formats that we skip conversion for are:
+```
+".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a", ".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj", ".exe", ".msi", ".bat", ".cmd", ".sh", ".jar", ".app", ".apk", ".dmg", ".iso", ".img", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz", ".lz", ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".webm", ".flv", ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend", ".ds_store", ".thumbs", ".lnk", ".heic"
+```
+
+Files that **don't have an extension**, we'll attempt to decode these as UTF-8
+
+Files that aren't traditional documents will have a page generated for them with your chosen links. Here's what an image in sharepoint will look like after adding to Hudu: 
+<img width="1184" height="1078" alt="image" src="https://github.com/user-attachments/assets/6a8fc563-49ee-4ed6-b17a-b35c78cc42f1" />
+
+### If a file is too large after conversion (longer than 196000 characters or 100mb)
+if this condition is met, the original is uploaded in Hudu and Linked
+ <img width="849" height="363" alt="image" src="https://github.com/user-attachments/assets/4354122b-2f97-41ce-b64e-9e0c6262072e" />
+
+#### Site Selection Filters
+
+You can hide known-unwanted SharePoint sites from the selection prompts and from "all sites" runs. Matching is case/punctuation-insensitive and checks both SharePoint `displayName` and `name`. This is totally optional and you'll otherwise choose site(s) as you wish.
+
+```powershell
+$SharePointSiteSkipNames = @(
+  "Archive",
+  "Old Client Portal"
+)
+```
 
 #### Client Attribution
 
@@ -358,66 +442,6 @@ Just before the file conversion process begins, this script will download and in
 #### Question 6 - **Would you like to Convert PowerPoints to Articles?**
 - **Convert powerpoints to articles**, effectively making an html table for this data
 - **Don't convert powerpoints**, just attach/upload them to Hudu 
-
-
-## Supported Files?
-
-All files can be added if they are either
--under 100mb in size
--under 196000 Characters long when converted to html
-
-Otherwise we just link to original file on SharePoint
-
-### Document files
-#### work nicely and any of the below should convert nicely:
-```
-- ".pdf"
-- ".doc"
-- ".docx"
-- ".docm"
-- ".rtf"
-- ".txt"
-- ".md"
-- ".wpd"
-- ".odt"
-```
-
-### Spreadsheets and Tabular Data
-#### can be converted if you like, but any formulae will be replaced. If you plan on editing tabular data frequently, you might elect to not convert these"
-```
-- ".xls"
-- ".xlsx"
-- ".csv"
-- ".ods"
-```
-
-### Powerpoints and Presentations
-#### These can be converted to a simplified html equivilent. Each slide has it's data / images extracted
-```
-- ".ppt"
-- ".pptx"
-- ".pptm"
-- ".odp"
-```
-
-### All others:
-#### All others will skip conversion process and will be uploaded directly if **under 100mb in size**. If they are **over 100mb in size**, we just create a stub article that has a link to the sharepoint file in question.
-
-All other non-document files skip conversion and are uploaded with a simple Hudu article containing file details.
-<img width="723" height="45" alt="image" src="https://github.com/user-attachments/assets/619859ee-b367-483d-85ed-b2336f7eda34" />
-most common formats that we skip conversion for are:
-```
-".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a", ".dll", ".so", ".lib", ".bin", ".class", ".pyc", ".pyo", ".o", ".obj", ".exe", ".msi", ".bat", ".cmd", ".sh", ".jar", ".app", ".apk", ".dmg", ".iso", ".img", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz", ".lz", ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".webm", ".flv", ".psd", ".ai", ".eps", ".indd", ".sketch", ".fig", ".xd", ".blend", ".ds_store", ".thumbs", ".lnk", ".heic"
-```
-
-Files that **don't have an extension**, we'll attempt to decode these as UTF-8
-
-Files that aren't traditional documents will have a page generated for them with your chosen links. Here's what an image in sharepoint will look like after adding to Hudu: 
-<img width="1184" height="1078" alt="image" src="https://github.com/user-attachments/assets/6a8fc563-49ee-4ed6-b17a-b35c78cc42f1" />
-
-### If a file is too large after conversion (longer than 196000 characters or 100mb)
-if this condition is met, the original is uploaded in Hudu and Linked
- <img width="849" height="363" alt="image" src="https://github.com/user-attachments/assets/4354122b-2f97-41ce-b64e-9e0c6262072e" />
 
 #### Effectively, here's the process:
 1. Select desired SharePoint Site(s)

@@ -1,4 +1,5 @@
 $docIDX=0
+$HuduPublicPhotoExtensions = @(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
 foreach ($doc in $StubbedArticles) {
     $docIDX=$docIDX+1
     $completionPercentage = Get-PercentDone -Current $docIDX -Total $StubbedArticles.count
@@ -18,12 +19,15 @@ foreach ($doc in $StubbedArticles) {
         $exists = Test-Path -LiteralPath $localPath
         $fileSize       = if ($exists) { (Get-Item -LiteralPath $localPath).Length } else { 0 }
         $tooLarge       = [bool]$($exists -and $fileSize -ge 100MB)
-        $isImage        = [bool]$($att -match '\.(jpg|jpeg|png)$')
+        $extension      = [IO.Path]::GetExtension($att).ToLowerInvariant()
+        $isImage        = [bool]($HuduPublicPhotoExtensions -contains $extension)
+        $mediaKind      = Get-HuduEmbeddableUploadMediaKind -Path $att
 
         $record = [PSCustomObject]@{
             FileName           = $att
-            Extension          = [IO.Path]::GetExtension($att).ToLower()
+            Extension          = $extension
             IsImage            = $isImage
+            MediaKind          = $mediaKind
             PageId             = $doc.id
             PageTitle          = $doc.title
             SourceUrl          = $null
@@ -46,13 +50,13 @@ foreach ($doc in $StubbedArticles) {
                 Article    = "Hudu stub with id $($($doc.stub).id) at $($($doc.stub).url)"
             }
             Write-ErrorObjectsToFile -ErrorObject $errorObject -name "Nofile-$($att)" -color Red
-            $RunSummary.Errors += $errorObject
+            Add-RunSummaryError -ErrorObject $errorObject
             continue
         }
         # handle attachment is too large
         if ($true -eq $record.AttachmentTooLarge) {
             Set-PrintAndLog -Message "Attachment is 100 MB or larger; skipping Hudu upload and relying on SharePoint link: $localPath" -Color Yellow
-            $RunSummary.Warnings += @{
+            Add-RunSummaryWarning -Warning @{
                 Attachment = "$att"
                 Warning    = "$($record.Filename) is 100 MB or larger and was not uploaded to Hudu."
                 doc        = "$($doc.title), $($doc.id)"
@@ -69,31 +73,37 @@ foreach ($doc in $StubbedArticles) {
                 if ($record.IsImage) {
                     $HuduUpload = $((New-HuduPublicPhoto -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'))
                     $HuduUpload = $HuduUpload.public_photo ?? $HuduUpload
+                    $record.HuduUploadType = 'image'
+                } elseif ($record.MediaKind) {
+                    $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
+                    $HuduUpload = $HuduUpload.upload ?? $HuduUpload
+                    $record.HuduUploadType = ([string]$record.MediaKind).ToLowerInvariant()
                 } else {
                     $HuduUpload = New-HuduUpload -FilePath $record.LocalPath -record_id $($doc.stub).id -record_type 'Article'
                     $HuduUpload = $HuduUpload.upload ?? $HuduUpload
+                    $record.HuduUploadType = 'upload'
                 }
+                $mappedUrl = Get-HuduUploadArticleUrl -Upload $HuduUpload -UploadType $record.HuduUploadType -OriginalFilename $record.FileName -HuduBaseUrl $HuduBaseURL
 
                 $mapEntry=[PSCustomObject]@{
                     doc           = $doc.id
                     PageTitle     = $doc.title
                     LocalFile     = $record.FileName
-                    HuduUrl       = $HuduUpload.url
+                    HuduUrl       = $mappedUrl
                     HuduUploadId  = $HuduUpload.id
                 }
                 $AllNewLinks.Add($mapEntry)
                 $normalizedFileName = $record.FileName.ToLowerInvariant()
                 $ImageMap[$normalizedFileName] = @{
                     Id   = $HuduUpload.id
-                    Type = if ($record.IsImage) { 'image' } else { 'upload' }
+                    Type = $record.HuduUploadType
                 }
                 $HuduUpload | Add-Member -NotePropertyName OriginalFilename -NotePropertyValue $record.FileName -Force
-                $HuduUpload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $HuduUpload.url -Force
+                $HuduUpload | Add-Member -NotePropertyName MappedUrl -NotePropertyValue $mappedUrl -Force
                 $HuduUpload | Add-Member -NotePropertyName UploadType -NotePropertyValue $record.HuduUploadType -Force
                 $doc.UploadedFiles.add($HuduUpload)                
 
                 $record.UploadResult    = $HuduUpload
-                $record.HuduUploadType  = $ImageMap[$normalizedFileName].Type
                 $record.HuduArticleId   = $($doc.stub).id
                 $RunSummary.JobInfo.UploadsCreated += 1
             } catch {
@@ -104,7 +114,7 @@ foreach ($doc in $StubbedArticles) {
                     Article     = "Hudu Article id $($doc.stub.id) at $($doc.stub.url)"
                     Doc         = "Sharepoint doc with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? '')"
                 }
-                $RunSummary.Errors.add($ErrorInfo)
+                Add-RunSummaryError -ErrorObject $ErrorInfo
                 $RunSummary.JobInfo.UploadsErrored+=1
                 Write-ErrorObjectsToFile -Name "uploaderr-$($record.FileName)" -ErrorObject $ErrorInfo
             }

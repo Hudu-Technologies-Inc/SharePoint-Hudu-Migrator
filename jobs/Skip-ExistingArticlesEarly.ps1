@@ -205,7 +205,7 @@ foreach ($file in @($AllDiscoveredFiles)) {
     $file | Add-Member -NotePropertyName CompanyId -NotePropertyValue $target.CompanyId -Force
     $file | Add-Member -NotePropertyName ExistingHuduArticle -NotePropertyValue $existingArticle -Force
     $RunSummary.JobInfo.ArticlesSkipped++
-    $RunSummary.Warnings += @{
+    Add-RunSummaryWarning -Warning @{
         Message       = "Skipped SharePoint file before conversion because matching Hudu article already exists"
         Title         = $articleTitle
         CompanyId     = $target.CompanyId

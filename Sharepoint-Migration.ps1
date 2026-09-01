@@ -25,7 +25,7 @@ foreach ($file in $(Get-ChildItem -Path ".\helpers" -Filter "*.ps1" -File | Sort
 foreach ($module in @("MSAL.PS")) {
     write-host "Installing, Updating, Importing module: $module. Please be patient..."  -ForegroundColor DarkBlue;  Update-Module $module -Force;  Install-Module $module -Scope CurrentUser -Force -AllowClobber; Import-Module $module;
 }
-Set-Content -Path $logFile -Value "Starting Sharepoint Migration" 
+Set-Content -LiteralPath $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
 Set-PrintAndLog -message "Imported Hudu Module and authenticated / checked version... $(Set-HuduModuleInitialized -huduBaseurl $HuduBaseURL -huduAPIkey $HuduApiKey)" -Color DarkBlue
 $currentVersionResult = $($currentVersionResult ?? $([version]((get-huduappinfo).version))); $MinAllowedVersion = ([version]"2.45.0"); $DisallowedVersions = @([version]("2.37.0")); if ($currentVersionResult -lt $MinAllowedVersion){Write-Host "Sorry, your Hudu version $currentVersionResult is not supported. You'll need to upgrade to $($MinAllowedVersion) in order to continue."; exit 1;}; if ($DisallowedVersions -contains [version]($currentVersionResult)) {write-host "disallowed version $($currentVersionResult); Please upgrade or downgrade if possible first." -ForegroundColor Red; exit 1;};
@@ -98,7 +98,7 @@ if ($RunSummary.SetupInfo.StructuredListJsonOnly) {
     $RunSummary.JobInfo.FinishedAt = Get-Date
     $RunSummary.JobInfo.RunDuration = New-TimeSpan -Start $RunSummary.JobInfo.StartedAt -End $RunSummary.JobInfo.FinishedAt
     Set-PrintAndLog -message "Structured list JSON only mode enabled; stopping before file conversion and article upload." -Color Green
-    $RunSummary | ConvertTo-Json -Depth 50 | Out-File -FilePath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
+    $RunSummary | ConvertTo-Json -Depth 50 | Out-File -LiteralPath $RunSummary.OutputJsonFiles.JobSummary -Encoding UTF8
     return
 }
 
@@ -176,14 +176,17 @@ function Invoke-SharePointMigrationFileBatch {
     Set-IncrementedState -newState "Determine Company Designations and Folder Structure - $BatchName"
     . .\jobs\Make-ArticleStubs.ps1
 
-    Set-IncrementedState -newState "Populate initial data into articles - $BatchName"
+    Set-IncrementedState -newState "Prepare article HTML locally - $BatchName"
     . .\jobs\Populate-Articles.ps1
 
     Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu - $BatchName"
     . .\jobs\Upload-Images.ps1
 
-    Set-IncrementedState -newState "Relink Articles - $BatchName"
+    Set-IncrementedState -newState "Relink article HTML locally - $BatchName"
     . .\jobs\Relink-Articles.ps1
+
+    Set-IncrementedState -newState "Commit final article HTML to Hudu - $BatchName"
+    . .\jobs\Commit-Articles.ps1
 
     if ($CleanupAfterBatch) {
         foreach ($site in @($Sites)) {
@@ -205,11 +208,11 @@ if ($RunSummary.SetupInfo.LowDiskMode) {
             $drives = @(Get-GraphSiteDrives -siteId $site.id)
         } catch {
             Set-PrintAndLog -message "Failed to enumerate drives for site $($site.name): $($_.Exception.Message)" -Color Red
-            $RunSummary.Errors.Add(@{
+            Add-RunSummaryError -ErrorObject @{
                 Site  = $site.name
                 Error = $_.Exception.Message
                 Step  = "Enumerate site drives"
-            })
+            }
             continue
         }
 
@@ -221,12 +224,12 @@ if ($RunSummary.SetupInfo.LowDiskMode) {
                 $rootItems = @(Get-GraphDriveChildItems -siteId $site.id -driveId $drive.id -folderId 'root')
             } catch {
                 Set-PrintAndLog -message "Failed to enumerate root items for drive $($drive.name) in site $($site.name): $($_.Exception.Message)" -Color Red
-                $RunSummary.Errors.Add(@{
+                Add-RunSummaryError -ErrorObject @{
                     Site  = $site.name
                     Drive = $drive.name
                     Error = $_.Exception.Message
                     Step  = "Enumerate drive root items"
-                })
+                }
                 continue
             }
 
@@ -279,7 +282,7 @@ foreach ($folder in @($downloadsFolder, $tmpfolder, $allSitesfolder)) {
         Get-ChildItem -Path $folder -File -Recurse -Force | Remove-Item -Force -ErrorAction Stop
     } catch {
         Set-PrintAndLog -message "Failed to clear $folder $($_.Exception.Message)" -Color Red
-        $RunSummary.Errors += @{
+        Add-RunSummaryError -ErrorObject @{
             Folder = $folder
             Error  = $_.Exception.Message
         }

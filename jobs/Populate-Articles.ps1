@@ -1,11 +1,14 @@
 $docIDX=0
 foreach ($doc in $StubbedArticles) {
-    Set-PrintAndLog "starting populate for $doc " -Color DarkCyan
+    Set-PrintAndLog "Preparing local article HTML for $($doc.title)" -Color DarkCyan
     $docIDX=$docIDX+1
     $completionPercentage = Get-PercentDone -Current $docIDX -Total $StubbedArticles.count
     $UploadedAsDoc=$false
     if ($doc.UsingGeneratedHTML) {
-        Set-PrintAndLog -message "Using generated content, skipping population" -color DarkMagenta
+        Set-PrintAndLog -message "Using generated content; final Hudu update will happen after upload and relink." -color DarkMagenta
+        $doc | Add-Member -NotePropertyName FinalContent -NotePropertyValue ($doc.ReplacedContent ?? "No Content Present") -Force
+        $doc | Add-Member -NotePropertyName UploadedAsDoc -NotePropertyValue $false -Force
+        Write-Progress -Activity "Preparing content for $($doc.title)" -Status "$completionPercentage%" -PercentComplete $completionPercentage
         continue
     }
     if ([string]::IsNullOrWhiteSpace($doc.ReplacedContent)) {
@@ -15,12 +18,12 @@ foreach ($doc in $StubbedArticles) {
     Save-HtmlSnapshot -PageId $doc.id -Title $doc.title -Content $doc.RawContent -Suffix "raw" -OutDir $tmpfolder
     $doc.ReplacedContent = compress-html -Html $doc.ReplacedContent 
 
-    $doc.charsTrimmed =  $doc.rawContent.length - $($doc.ReplacedContent).length
+    $rawLength = if ($doc.RawContent) { ([string]$doc.RawContent).Length } else { 0 }
+    $doc.charsTrimmed =  $rawLength - $($doc.ReplacedContent).length
     Set-PrintAndLog -Message "Removed $($doc.charsTrimmed) characters of bloat from $($doc.title)" -Color Green
-    Save-HtmlSnapshot -PageId $doc.id -Title $doc.title -Content $doc.RawContent -Suffix "raw" -OutDir $tmpfolder
     $FinalContents = $doc.ReplacedContent
 
-    Set-PrintAndLog "Populating Article: $($doc.title) to $($($doc.CompanyId) ?? 'Global KB') with relinked contents" -Color Green
+    Set-PrintAndLog "Prepared Article: $($doc.title) for $($($doc.CompanyId) ?? 'Global KB'); Hudu content will be committed after relinking." -Color Green
 
     if ($($doc.ReplacedContent).Length -gt $HUDU_MAX_DOCSIZE) {
         $UploadedAsDoc=$true
@@ -51,38 +54,16 @@ foreach ($doc in $StubbedArticles) {
     } else {
         $FinalContents=$($($doc.ReplacedContent) ?? "unknown contents")
     }
-    try {
-        if ($null -ne $($doc.CompanyId) -and $($doc.CompanyId) -ne -1) {
-            $doc.HuduArticle = $(Set-HuduArticle -ArticleId $($doc.stub).id -Content $FinalContents -name $($($doc.title) ?? "Unknown Title") -CompanyId $($doc.CompanyId))
-        } else {
-            $doc.HuduArticle = $(Set-HuduArticle -ArticleId $($doc.stub).id -Content $FinalContents -name $($($doc.title) ?? "Unknown Title"))
-        }
-        $doc.HuduArticle = $doc.HuduArticle.Article ?? $doc.HuduArticle
-        
-    } catch {
-        # Handle articles that are too large having an issue during file upload / linking
-        $HuduArticle=$(Get-HuduArticles -id $($doc.stub).id)
-        $HuduArticle = $HuduArticle.Article ?? $HuduArticle
-        $ErrorInfo=@{
-            Message="Error Uploading article with content that is too long: $($doc.title)"
-            Error=$_
-            HuduArticle=$HuduArticle
-            doc = "Sharepoint page with Id $($doc.id), titled $($doc.title)- $($doc.FullUrl ?? '')"
-            ArticleURL=$($doc.stub.url ?? "URL not found")
-        }
-        $RunSummary.Errors.add($ErrorInfo)
-        $RunSummary.JobInfo.ArticlesErrored+=1
-        Write-ErrorObjectsToFile -name "largearticle-$($doc.title)" -ErrorObject $ErrorInfo
-        continue
-    }
+    $doc | Add-Member -NotePropertyName FinalContent -NotePropertyValue $FinalContents -Force
+    $doc | Add-Member -NotePropertyName UploadedAsDoc -NotePropertyValue $UploadedAsDoc -Force
 
     if ($true -eq $UploadedAsDoc) {
         # Add a warning for articles that are too large being uploaded as linked standalone file
-        $RunSummary.Warnings.add(@{
+        Add-RunSummaryWarning -Warning @{
             Warning="Document from page $($doc.title) was too large and was uploaded as standalone HTML File; Please review."
-            ArticleURL=$htmlAttachment.Article.url ?? ($doc.stub.url ?? "URL not found")
+            ArticleURL=$doc.stub.url ?? "URL not found"
             PageURL=$doc.FullUrl
-        })
+        }
         continue
     }
     Write-Progress -Activity "Processing content for $($doc.title)" -Status "$completionPercentage%" -PercentComplete $completionPercentage

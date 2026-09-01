@@ -3,6 +3,7 @@ $FolderResolutionCache = @{}
 $BaseSitePath = (Get-Item $allSitesfolder).FullName
 Set-PrintAndLog -message "BaseSitePath set to $BaseSitePath" -Color Cyan
 $docsToStub = @($successConverted | Where-Object { $_.PSObject.Properties.Name -contains 'ContentPreview' -and $_.ContentPreview })
+$StubArticleContent = "<p>Migration in progress</p>"
 
 function Get-SharePointDocAttributionSourceText {
     param ($Doc)
@@ -147,7 +148,7 @@ foreach ($doc in $docsToStub) {
 
             $doc | Add-Member -NotePropertyName ExistingHuduArticle -NotePropertyValue $existingArticle -Force
             $RunSummary.JobInfo.ArticlesSkipped++
-            $RunSummary.Warnings += @{
+            Add-RunSummaryWarning -Warning @{
                 Message       = "Skipped SharePoint file because matching Hudu article already exists"
                 Title         = $doc.title
                 CompanyId     = $doc.CompanyId
@@ -210,11 +211,11 @@ foreach ($doc in $docsToStub) {
     # Stub article
     if ($null -eq $doc.CompanyId -or $doc.CompanyId -eq 0) {
         Set-PrintAndLog -message "Stubbing global KB article" -Color Yellow
-        $doc.stub = New-HuduStubArticle -Title $doc.title -Content "$($doc.ContentPreview)" -FolderId $doc.HuduFolderId
+        $doc.stub = New-HuduStubArticle -Title $doc.title -Content $StubArticleContent -FolderId $doc.HuduFolderId
     }
     elseif ($doc.CompanyId -lt 0) {
         Set-PrintAndLog -message "Skipping doc/article transfer for $($doc.title)" -Color Gray
-        $RunSummary.Warnings += @{
+        Add-RunSummaryWarning -Warning @{
             Message     = "User elected to skip doc/article transfer for $($doc.title)"
             docSkipped  = "doc with ID $($doc.id), titled $($doc.title) was skipped. $($doc.FullUrl ?? '')"
         }
@@ -223,7 +224,7 @@ foreach ($doc in $docsToStub) {
     }
     else {
         Set-PrintAndLog -message "Stubbing KB article for Hudu company ID: $($doc.CompanyId)" -Color Yellow
-        $doc.stub = New-HuduStubArticle -Title $doc.title -Content "$($doc.ContentPreview)" -CompanyId $doc.CompanyId -FolderId $doc.HuduFolderId
+        $doc.stub = New-HuduStubArticle -Title $doc.title -Content $StubArticleContent -CompanyId $doc.CompanyId -FolderId $doc.HuduFolderId
     }
 
     # Post-processing
@@ -234,7 +235,7 @@ foreach ($doc in $docsToStub) {
             Error = "Error stubbing article with id $($doc.id), title $($doc.title)"
         }
         Write-ErrorObjectsToFile -name "Stub-$($doc.title)" -ErrorObject $ErrorObject
-        $RunSummary.Errors.Add($ErrorObject)
+        Add-RunSummaryError -ErrorObject $ErrorObject
         $RunSummary.JobInfo.ArticlesErrored++
         continue
     }

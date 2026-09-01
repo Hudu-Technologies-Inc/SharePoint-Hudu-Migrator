@@ -70,11 +70,11 @@ foreach ($site in @($userSelectedSites)) {
             }
         } catch {
             $status = 'CreateFailed'
-            $RunSummary.Errors.Add(@{
+            Add-RunSummaryError -ErrorObject @{
                 Step = 'Build site company map'
                 Site = $siteCompanyName
                 Error = $_.Exception.Message
-            })
+            }
             Set-PrintAndLog -message "Failed to create Hudu company for SharePoint site '$siteCompanyName': $($_.Exception.Message)" -Color Red
         }
     }
@@ -98,7 +98,7 @@ $SiteCompanyMap = @($siteCompanyMapItems)
 
 $SiteCompanyMap |
     ConvertTo-Json -Depth 20 |
-    Out-File -FilePath $RunSummary.OutputJsonFiles.SiteCompanyMap -Encoding UTF8
+    Out-File -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyMap -Encoding UTF8
 
 $SiteCompanyMap |
     ForEach-Object {
@@ -118,7 +118,7 @@ $SiteCompanyMap |
             Candidate3Score = @($_.TopCandidates | Select-Object -Skip 2 -First 1).Score
         }
     } |
-    Export-Csv -Path $RunSummary.OutputJsonFiles.SiteCompanyReview -NoTypeInformation -Encoding UTF8
+    Export-Csv -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyReview -NoTypeInformation -Encoding UTF8
 
 Set-PrintAndLog -message "Site company map complete: $(@($SiteCompanyMap | Where-Object { $_.Status -eq 'Matched' }).Count) matched, $(@($SiteCompanyMap | Where-Object { $_.Status -eq 'Created' }).Count) created, $(@($SiteCompanyMap | Where-Object { $_.Status -eq 'CreateFailed' -or $_.Status -eq 'Unmatched' }).Count) unresolved." -Color Cyan
 Set-PrintAndLog -message "Wrote site company map: $($RunSummary.OutputJsonFiles.SiteCompanyMap)" -Color DarkMagenta

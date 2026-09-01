@@ -206,33 +206,66 @@ function ConvertTo-SharePointSitePageImportWebPartHtml {
 }
 
 function Get-SharePointSitePageImportWebPartsFromObject {
-    param ($Object)
+    param (
+        $Object,
+        [int]$MaxDepth = 64
+    )
 
     if ($null -eq $Object) { return @() }
 
     $found = [System.Collections.Generic.List[object]]::new()
-    if ($Object -is [System.Collections.IEnumerable] -and -not ($Object -is [string]) -and -not $Object.PSObject.Properties) {
-        foreach ($item in @($Object)) {
-            foreach ($webPart in @(Get-SharePointSitePageImportWebPartsFromObject -Object $item)) {
-                $found.Add($webPart)
+    $stack = [System.Collections.Generic.Stack[object]]::new()
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+    $warnedDepthLimit = $false
+
+    $stack.Push([PSCustomObject]@{ Value = $Object; Depth = 0 })
+
+    while ($stack.Count -gt 0) {
+        $node = $stack.Pop()
+        $current = $node.Value
+        $depth = [int]$node.Depth
+
+        if ($null -eq $current) { continue }
+        if ($current -is [string] -or $current -is [System.ValueType]) { continue }
+        if ($depth -gt $MaxDepth) {
+            if (-not $warnedDepthLimit) {
+                Set-PrintAndLog -message "SharePoint site page import traversal hit depth limit ($MaxDepth); continuing with web parts found so far." -Color Yellow
+                $warnedDepthLimit = $true
             }
+            continue
         }
-        return @($found)
-    }
 
-    if (-not $Object.PSObject.Properties) { return @() }
+        try {
+            $referenceId = [System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($current)
+            if (-not $seen.Add($referenceId)) { continue }
+        } catch {}
 
-    if ($Object.PSObject.Properties["innerHtml"] -or $Object.PSObject.Properties["webPartType"] -or $Object.PSObject.Properties["data"]) {
-        $found.Add($Object)
-    }
+        if ($current -is [System.Collections.IDictionary]) {
+            foreach ($value in @($current.Values)) {
+                $stack.Push([PSCustomObject]@{ Value = $value; Depth = ($depth + 1) })
+            }
+            continue
+        }
 
-    foreach ($property in @($Object.PSObject.Properties)) {
-        if ($property.Name -like "@odata*") { continue }
-        if ($null -eq $property.Value) { continue }
-        if ($property.Value -is [string] -or $property.Value -is [ValueType]) { continue }
+        if ($current -is [System.Collections.IEnumerable] -and -not ($current -is [string])) {
+            foreach ($item in @($current)) {
+                $stack.Push([PSCustomObject]@{ Value = $item; Depth = ($depth + 1) })
+            }
+            continue
+        }
 
-        foreach ($webPart in @(Get-SharePointSitePageImportWebPartsFromObject -Object $property.Value)) {
-            $found.Add($webPart)
+        if (-not $current.PSObject.Properties) { continue }
+
+        if ($current.PSObject.Properties["innerHtml"] -or $current.PSObject.Properties["webPartType"] -or $current.PSObject.Properties["data"]) {
+            $found.Add($current)
+        }
+
+        foreach ($property in @($current.PSObject.Properties)) {
+            if ($property.Name -like "@odata*") { continue }
+            if ($null -eq $property.Value) { continue }
+            if ($property.Value -is [string] -or $property.Value -is [System.ValueType]) { continue }
+
+            $stack.Push([PSCustomObject]@{ Value = $property.Value; Depth = ($depth + 1) })
         }
     }
 
@@ -496,13 +529,16 @@ Set-PrintAndLog -message "Importing $($successConverted.Count) SharePoint site p
 Set-IncrementedState -newState "Determine Company Designations and Folder Structure - SharePoint site pages"
 . .\jobs\Make-ArticleStubs.ps1
 
-Set-IncrementedState -newState "Populate initial data into articles - SharePoint site pages"
+Set-IncrementedState -newState "Prepare article HTML locally - SharePoint site pages"
 . .\jobs\Populate-Articles.ps1
 
 Set-IncrementedState -newState "Upload extracted/embedded images / attachments to Hudu - SharePoint site pages"
 . .\jobs\Upload-Images.ps1
 
-Set-IncrementedState -newState "Relink Articles - SharePoint site pages"
+Set-IncrementedState -newState "Relink article HTML locally - SharePoint site pages"
 . .\jobs\Relink-Articles.ps1
+
+Set-IncrementedState -newState "Commit final article HTML to Hudu - SharePoint site pages"
+. .\jobs\Commit-Articles.ps1
 
 Set-PrintAndLog -message "SharePoint site page article import complete: $(@($StubbedArticles).Count) article stub(s) processed." -Color Green

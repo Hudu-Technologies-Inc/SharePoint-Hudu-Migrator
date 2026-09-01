@@ -84,9 +84,111 @@ function Get-GeneratedHTMLForImageFile {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile1
 }
+
+function Get-HuduEmbeddableUploadMediaKind {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($extension -in @('.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi', '.wmv', '.flv')) { return 'Video' }
+    if ($extension -in @('.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.flac', '.weba', '.wma')) { return 'Audio' }
+
+    return $null
+}
+
+function Get-HuduMediaMimeType {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    switch ([System.IO.Path]::GetExtension($Path).ToLowerInvariant()) {
+        '.mp4'  { return 'video/mp4' }
+        '.m4v'  { return 'video/mp4' }
+        '.webm' { return 'video/webm' }
+        '.ogv'  { return 'video/ogg' }
+        '.mov'  { return 'video/quicktime' }
+        '.mkv'  { return 'video/x-matroska' }
+        '.avi'  { return 'video/x-msvideo' }
+        '.wmv'  { return 'video/x-ms-wmv' }
+        '.flv'  { return 'video/x-flv' }
+        '.mp3'  { return 'audio/mpeg' }
+        '.m4a'  { return 'audio/mp4' }
+        '.aac'  { return 'audio/aac' }
+        '.wav'  { return 'audio/wav' }
+        '.ogg'  { return 'audio/ogg' }
+        '.oga'  { return 'audio/ogg' }
+        '.opus' { return 'audio/ogg' }
+        '.flac' { return 'audio/flac' }
+        '.weba' { return 'audio/webm' }
+        '.wma'  { return 'audio/x-ms-wma' }
+    }
+
+    return $null
+}
+
+function Get-GeneratedHTMLForMediaFile {
+    param (
+        [Parameter(Mandatory)]
+        [PSCustomObject]$sourceFile,
+
+        [Parameter(Mandatory)]
+        [string]$outputFile
+    )
+
+    $filename = [System.IO.Path]::GetFileName($sourceFile.LocalPath)
+    $safeFilename = [System.Web.HttpUtility]::HtmlAttributeEncode($filename)
+    $title = [System.Web.HttpUtility]::HtmlEncode($sourceFile.title)
+    $site = [System.Web.HttpUtility]::HtmlEncode($sourceFile.SiteName)
+    $mediaKind = Get-HuduEmbeddableUploadMediaKind -Path $sourceFile.LocalPath
+    $mimeType = Get-HuduMediaMimeType -Path $sourceFile.LocalPath
+    $safeMimeType = [System.Web.HttpUtility]::HtmlAttributeEncode($mimeType)
+
+    $mediaHtml = if ($mediaKind -eq 'Video') {
+@"
+  <video controls="controls" preload="metadata" width="640" style="max-width: 100%; height: auto;">
+    <source src="$safeFilename" type="$safeMimeType" />
+    <a href="$safeFilename">Download $title</a>
+  </video>
+"@
+    } else {
+@"
+  <audio controls="controls" preload="metadata" style="width: 100%;">
+    <source src="$safeFilename" type="$safeMimeType" />
+    <a href="$safeFilename">Download $title</a>
+  </audio>
+"@
+    }
+
+    $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+</head>
+<body>
+  <h1>$title</h1>
+  $mediaHtml
+  <p>
+    <strong>Site:</strong> $site<br />
+    <strong>File:</strong> $filename
+  </p>
+  $SHAREPOINT_URL_DELIMITER
+  <p>$HUDU_LOCALATTACHMENT_DELIMITER</p>
+</body>
+</html>
+"@
+
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
+    return $outputFile
+}
+
 function Get-GeneratedAttachmentLinkLargeDocs {
     param (
         [Parameter(Mandatory)]
@@ -133,7 +235,7 @@ function Get-GeneratedAttachmentLinkLargeDocs {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile
 }
 
@@ -170,7 +272,7 @@ function Get-GeneratedUploadAsFileHTML {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile
 }
 
@@ -242,7 +344,7 @@ function Get-DisallowedExtensionGeneratedHTML {
 </html>
 "@
 
-    Set-Content -Path $outputFile -Value $html -Encoding UTF8
+    Set-Content -LiteralPath $outputFile -Value $html -Encoding UTF8
     return $outputFile
 }
 
@@ -366,6 +468,116 @@ function Get-LinksFromHTML {
 
     return $allLinks | Sort-Object -Unique
 }
+
+function Get-HuduPublicPhotoLocalUrl {
+    param ($Upload)
+
+    $photo = $Upload.public_photo ?? $Upload.PublicPhoto ?? $Upload
+    if (-not $photo) { return $null }
+
+    $identifier = $photo.slug ?? $photo.Slug
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $idCandidate = $photo.id ?? $photo.Id
+        if (-not [string]::IsNullOrWhiteSpace([string]$idCandidate) -and [string]$idCandidate -notmatch '^\d+$') {
+            $identifier = $idCandidate
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        foreach ($propertyName in @('url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+            $property = $photo.PSObject.Properties[$propertyName]
+            if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+
+            $match = [regex]::Match([string]$property.Value, '(?i)/public_photos?/(?<identifier>[^/?#]+)')
+            if ($match.Success) {
+                $identifier = $match.Groups['identifier'].Value
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $identifier = $photo.id ?? $photo.Id ?? $photo.numeric_id ?? $photo.Numeric_Id ?? $photo.NumericId
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) { return $null }
+
+    return "/public_photo/$identifier"
+}
+
+function Get-HuduFileLocalUrl {
+    param ($Upload)
+
+    $file = $Upload.upload ?? $Upload
+    if (-not $file) { return $null }
+
+    $identifier = $file.slug ?? $file.Slug
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $idCandidate = $file.id ?? $file.Id
+        if (-not [string]::IsNullOrWhiteSpace([string]$idCandidate) -and [string]$idCandidate -notmatch '^\d+$') {
+            $identifier = $idCandidate
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        foreach ($propertyName in @('MappedUrl', 'url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+            $property = $file.PSObject.Properties[$propertyName]
+            if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+
+            $match = [regex]::Match([string]$property.Value, '(?i)/files?/(?<identifier>[^/?#]+)')
+            if ($match.Success) {
+                $identifier = $match.Groups['identifier'].Value
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) {
+        $identifier = $file.id ?? $file.Id ?? $file.numeric_id ?? $file.Numeric_Id ?? $file.NumericId
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$identifier)) { return $null }
+
+    return "/file/$identifier"
+}
+
+function Get-HuduUploadArticleUrl {
+    param (
+        $Upload,
+        [string]$UploadType,
+        [string]$OriginalFilename,
+        [string]$HuduBaseUrl
+    )
+
+    $upload = $Upload.public_photo ?? $Upload.upload ?? $Upload
+    if (-not $upload) { return $null }
+
+    $extension = if (-not [string]::IsNullOrWhiteSpace([string]$OriginalFilename)) {
+        [System.IO.Path]::GetExtension([string]$OriginalFilename).TrimStart('.').ToLowerInvariant()
+    } else {
+        ""
+    }
+    $isImage = $UploadType -eq 'image' -or $extension -in @('jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp')
+
+    if ($isImage) {
+        $publicPhotoUrl = Get-HuduPublicPhotoLocalUrl -Upload $upload
+        if ($publicPhotoUrl) { return $publicPhotoUrl }
+    }
+
+    $fileUrl = Get-HuduFileLocalUrl -Upload $upload
+    if ($fileUrl) { return $fileUrl }
+
+    foreach ($propertyName in @('MappedUrl', 'url', 'Url', 'path', 'Path', 'file_url', 'fileUrl', 'public_url', 'publicUrl')) {
+        $property = $upload.PSObject.Properties[$propertyName]
+        if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            return [string]$property.Value
+        }
+    }
+
+    $id = $upload.id ?? $upload.Id
+    if (-not $id) { return $null }
+
+    if ([string]::IsNullOrWhiteSpace([string]$HuduBaseUrl)) {
+        return "/file/$id"
+    }
+
+    return "$($HuduBaseUrl.TrimEnd('/'))/file/$id"
+}
+
 function Replace-SharePointAttachmentTags {
     param(
         [string]$Html,
@@ -383,19 +595,15 @@ function Replace-SharePointAttachmentTags {
         $id = $upload.id
         $safeFilename = [regex]::Escape($filename)
 
-        $url = "$HuduBaseUrl/file/$id"
-        $imgUrl = "$HuduBaseUrl/public_photo/$id"
+        $replacementUrl = Get-HuduUploadArticleUrl -Upload $upload -UploadType $upload.UploadType -OriginalFilename $upload.OriginalFilename -HuduBaseUrl $HuduBaseUrl
+        if ([string]::IsNullOrWhiteSpace([string]$replacementUrl)) { continue }
 
-        if ($ext -match '^(jpg|jpeg|png|webp)$') {
-            $replacement = "<a href='$imgUrl' target='_blank'><img src='$imgUrl' alt='$filename' /></a>"
-        } elseif ($ext -match '^(gif|bmp|svg)$') {
-            $replacement = "<a href='$url' target='_blank'><img src='$url' alt='$filename' /></a>"
-        } else {
-            $replacement = "<a href='$url'>$filename</a>"
-        }
-
-        # Replace anywhere in the HTML that matches this filename
-        $Html = [regex]::Replace($Html, $safeFilename, [regex]::Escape($replacement))
+        # Replace local attachment references without changing surrounding link/image markup.
+        $attributePattern = '(?i)(?<prefix>\b(?:src|href)\s*=\s*["''])(?<value>[^"'']*' + $safeFilename + '[^"'']*)(?<suffix>["''])'
+        $Html = [regex]::Replace($Html, $attributePattern, {
+            param($match)
+            "$($match.Groups['prefix'].Value)$replacementUrl$($match.Groups['suffix'].Value)"
+        })
     }
 
     return $Html

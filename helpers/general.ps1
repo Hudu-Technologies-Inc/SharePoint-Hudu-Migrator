@@ -17,10 +17,63 @@ function Export-DocPropertyJson {
     $base = [System.IO.Path]::GetFileNameWithoutExtension($Doc.LocalPath)
     $outPath = [System.IO.Path]::Combine($dir, "$base-$($Property.ToLower()).json")
 
-    $value | ConvertTo-Json -Depth $Depth | Out-File -FilePath $outPath -Encoding UTF8
+    $value | ConvertTo-Json -Depth $Depth | Out-File -LiteralPath $outPath -Encoding UTF8
 
     return $outPath
 }
+
+function Add-RunSummaryCollectionItem {
+    param (
+        [Parameter(Mandatory)]
+        [ValidateSet('Warnings', 'Errors')]
+        [string]$CollectionName,
+
+        [Parameter(Mandatory)]
+        [object]$Item
+    )
+
+    if ($null -eq $RunSummary) { return }
+
+    $collection = if ($RunSummary -is [hashtable]) {
+        $RunSummary[$CollectionName]
+    } elseif ($RunSummary.PSObject.Properties[$CollectionName]) {
+        $RunSummary.$CollectionName
+    } else {
+        $null
+    }
+
+    if ($collection -is [System.Collections.IList] -and -not $collection.IsFixedSize) {
+        [void]$collection.Add($Item)
+        return
+    }
+
+    $newCollection = [System.Collections.ArrayList]@()
+    if ($null -ne $collection) {
+        foreach ($existingItem in @($collection)) {
+            [void]$newCollection.Add($existingItem)
+        }
+    }
+    [void]$newCollection.Add($Item)
+
+    if ($RunSummary -is [hashtable]) {
+        $RunSummary[$CollectionName] = $newCollection
+    } else {
+        $RunSummary | Add-Member -NotePropertyName $CollectionName -NotePropertyValue $newCollection -Force
+    }
+}
+
+function Add-RunSummaryWarning {
+    param ([Parameter(Mandatory)][object]$Warning)
+
+    Add-RunSummaryCollectionItem -CollectionName 'Warnings' -Item $Warning
+}
+
+function Add-RunSummaryError {
+    param ([Parameter(Mandatory)][object]$ErrorObject)
+
+    Add-RunSummaryCollectionItem -CollectionName 'Errors' -Item $ErrorObject
+}
+
 function Write-ErrorObjectsToFile {
     param (
         [Parameter(Mandatory)]
@@ -62,14 +115,14 @@ $stringOutput
 $propertyDump
 "@
 
-    if ($ErroredItemsFolder -and (Test-Path $ErroredItemsFolder)) {
+    if ($ErroredItemsFolder -and (Test-Path -LiteralPath $ErroredItemsFolder)) {
         $SafeName = ($Name -replace '[\\/:*?"<>|]', '_') -replace '\s+', ''
         if ($SafeName.Length -gt 60) {
             $SafeName = $SafeName.Substring(0, 60)
         }
         $filename = "${SafeName}_error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
         $fullPath = Join-Path $ErroredItemsFolder $filename
-        Set-Content -Path $fullPath -Value $logContent -Encoding UTF8
+        Set-Content -LiteralPath $fullPath -Value $logContent -Encoding UTF8
         if ($Color) {
             Write-Host "Error written to $fullPath" -ForegroundColor $Color
         } else {
@@ -99,7 +152,7 @@ function Save-HtmlSnapshot {
     $path = Join-Path -Path $OutDir -ChildPath $filename
 
     try {
-        $Content | Out-File -FilePath $path -Encoding UTF8
+        $Content | Out-File -LiteralPath $path -Encoding UTF8
         Write-Host "Saved HTML snapshot: $path"
     } catch {
         Write-ErrorObjectsToFile -Name "$($_.safeTitle ?? "unnamed")" -ErrorObject @{
@@ -425,15 +478,29 @@ function Clear-SharePointBatchWorkingFiles {
 
     $pathsToRemove = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($file in @($Files)) {
+        if ($null -eq $file) { continue }
+
+        if ($file -is [string]) {
+            if (-not [string]::IsNullOrWhiteSpace($file)) {
+                [void]$pathsToRemove.Add($file)
+            }
+            continue
+        }
+
+        $properties = $file.PSObject.Properties
+        if (-not $properties) { continue }
+
         foreach ($propertyName in @('LocalPath', 'NewPath')) {
-            if ($file.PSObject.Properties[$propertyName] -and $file.$propertyName) {
-                [void]$pathsToRemove.Add([string]$file.$propertyName)
+            $property = $properties[$propertyName]
+            if ($property -and $property.Value) {
+                [void]$pathsToRemove.Add([string]$property.Value)
             }
         }
 
         foreach ($propertyName in @('ExternalFiles', 'Base64ImagesWritten', 'AllAttachments')) {
-            if (-not $file.PSObject.Properties[$propertyName]) { continue }
-            foreach ($path in @($file.$propertyName)) {
+            $property = $properties[$propertyName]
+            if (-not $property) { continue }
+            foreach ($path in @($property.Value)) {
                 if ($path) {
                     [void]$pathsToRemove.Add([string]$path)
                 }

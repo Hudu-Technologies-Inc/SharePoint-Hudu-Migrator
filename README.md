@@ -8,13 +8,20 @@ However, for environments with multiple SharePoint sites, drives, lists, pages, 
 
 ### Prerequisites
 
-- Hudu Instance of 2.45.0 or newer
+- Hudu Instance of 2.46.0 or newer
 - Companies created in Hudu if you want to attribute sharepoint items to companies
 - Hudu API Key
 - SharePoint / Sites with Files
 - Powershell 7.5.0 or later
 - Libreoffice **(script will start install if not present)**
 - Read permissions for SharePoint **(script will register app in entra if not manually set)**
+
+> [!IMPORTANT]
+> Before Starting, **make sure that company kb, central kb, or both are enabled in Hudu**
+> ***Talk to your administrator if you are not authorized to check this or ensure they are turned on. (admin -> general settings)***
+
+If neither knowledgebase article type is turned on / enabled in Hudu, the process will notify you in the console window and exit early.
+
 
 ### Environment File and Invocation
 

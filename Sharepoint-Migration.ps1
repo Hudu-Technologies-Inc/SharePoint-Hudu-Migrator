@@ -28,7 +28,13 @@ foreach ($module in @("MSAL.PS")) {
 Set-Content -LiteralPath $logFile -Value "Starting Sharepoint Migration" 
 Set-PrintAndLog -message "Checked Powershell Version... $(Get-PSVersionCompatible)" -Color DarkBlue
 Set-PrintAndLog -message "Imported Hudu Module and authenticated / checked version... $(Set-HuduModuleInitialized -huduBaseurl $HuduBaseURL -huduAPIkey $HuduApiKey)" -Color DarkBlue
-$currentVersionResult = $($currentVersionResult ?? $([version]((get-huduappinfo).version))); $MinAllowedVersion = ([version]"2.45.0"); $DisallowedVersions = @([version]("2.37.0")); if ($currentVersionResult -lt $MinAllowedVersion){Write-Host "Sorry, your Hudu version $currentVersionResult is not supported. You'll need to upgrade to $($MinAllowedVersion) in order to continue."; exit 1;}; if ($DisallowedVersions -contains [version]($currentVersionResult)) {write-host "disallowed version $($currentVersionResult); Please upgrade or downgrade if possible first." -ForegroundColor Red; exit 1;};
+$currentVersionResult = $($currentVersionResult ?? $([version]((get-huduappinfo).version))); $MinAllowedVersion = ([version]"2.46.0"); $DisallowedVersions = @([version]("2.37.0")); if ($currentVersionResult -lt $MinAllowedVersion){Write-Host "Sorry, your Hudu version $currentVersionResult is not supported. You'll need to upgrade to $($MinAllowedVersion) in order to continue."; exit 1;}; if ($DisallowedVersions -contains [version]($currentVersionResult)) {write-host "disallowed version $($currentVersionResult); Please upgrade or downgrade if possible first." -ForegroundColor Red; exit 1;};
+$articleFeaturesAvailable = Get-HuduFeatureAvailability -Core_Feature articles
+if ($false -eq $articleFeaturesAvailable.companyKB -and $false -eq $articleFeaturesAvailable.centralKB) {
+    Set-PrintAndLog -message "Neither Company KB nor Central KB features are available in Hudu. Migration cannot proceed until at least one of these is enabled." -Color Red
+    exit 1
+}
+
 if ($null -eq $clientId -or $null -eq $tenantId) {
     Set-PrintAndLog -message "No clientId or tenantId provided. Will attempt to create app registration for Sharepoint access." -Color Yellow
     $registration = EnsureRegistration -ClientId $clientId -TenantId $tenantId
@@ -66,24 +72,27 @@ $SharePointMigrationState = if ($RunSummary.SetupInfo.ResumeFromState) {
 Set-PrintAndLog -message "Loaded SharePoint migration state: $($SharePointMigrationState.Count) completed/skipped/failed state entr$(if ($SharePointMigrationState.Count -eq 1) { 'y' } else { 'ies' }) from $($RunSummary.OutputJsonFiles.MigrationState)" -Color Cyan
 
 
-
 ##### Step 2 Source and Dest Options
 ##
 #
 Set-IncrementedState -newState "Source Data (Sharepoint) and Destination (Hudu) Options"
 # 2.1 Select Source Options
 . .\jobs\Source-Options.ps1
-Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
-Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
-$userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
-
-if ($RunSummary.SetupInfo.FetchSitePages) {
-    Set-IncrementedState -newState "Fetch SharePoint Site Pages"
-    . .\jobs\Get-SitePages.ps1
-}
 
 # 2.2 Select Dest Options
 . .\jobs\Dest-Options.ps1
+
+if ($true -eq $articleFeaturesAvailable.centralKB){
+    Set-PrintAndLog -message "$($userSelectedSites.count) Sites selected as source for migration."
+    Set-PrintAndLog -message "Writing out user-selected sites info to sites.json $($RunSummary.OutputJsonFiles.SelectedSites)...!" -color DarkMagenta
+    $userSelectedSites | ConvertTo-Json -Depth 45 | Out-File "$($RunSummary.OutputJsonFiles.SelectedSites)"
+
+    if ($RunSummary.SetupInfo.FetchSitePages) {
+        Set-IncrementedState -newState "Fetch SharePoint Site Pages"
+        . .\jobs\Get-SitePages.ps1
+    }
+}
+
 
 # 2.3 Build optional site-to-company map
 . .\jobs\Build-SiteCompanyMap.ps1

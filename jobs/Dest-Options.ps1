@@ -19,7 +19,7 @@ $availableDestinationOptions = @(
 })
 $validDestinationOptions = @()
 $AllCompanies = Get-HuduCompanies
-$articleFeaturesAvailable = Get-HuduFeatureAvailability -Core_Feature articles
+$articleFeaturesAvailable = $articleFeaturesAvailable ?? $(Get-HuduFeatureAvailability -Core_Feature articles)
 if ($AllCompanies.Count -eq 0) {
     Set-PrintAndLog -message  "Sorry, we didnt seem to see any Companies set up in Hudu... If you intend to attribute certain articles to certain companies, be sure to add your companies first! company attribution will be disabled otherwise." -Color Yellow
 } elseif ($false -eq $articleFeaturesAvailable.companyKB) {
@@ -40,7 +40,7 @@ if ($validDestinationOptions.Count -eq 0 -or ($articleFeaturesAvailable.centralK
 }
 
 
-$RunSummary.JobInfo.MigrationDest=$(Select-ObjectFromList -Objects  -message "Configure Destination (Hudu-Side) Options- $($RunSummary.JobInfo.MigrationSource.OptionMessage) to where in Hudu?" -allowNull $false)
+$RunSummary.JobInfo.MigrationDest=$(Select-ObjectFromList -Objects $validDestinationOptions -message "Configure Destination (Hudu-Side) Options- $($RunSummary.JobInfo.MigrationSource.OptionMessage) to where in Hudu?" -allowNull $false)
 
 
 if ([int]$RunSummary.JobInfo.MigrationDest.Identifier -eq 0) {

@@ -850,7 +850,7 @@ foreach ($article in @($articles)) {
 }
 
 $report |
-    Export-Csv -LiteralPath $internalizeReportPath -NoTypeInformation -Encoding UTF8
+    Export-Csv -LiteralPath $internalizeReportPath -Encoding UTF8
 
 Set-PrintAndLog -message "External image internalization scan complete: $($report.Count) image reference(s). Report: $internalizeReportPath" -Color Green
 Set-PrintAndLog -message "Scan summary: $articlesWithContent article(s) had content; $emptyContentCount article(s) had empty content; $missingArticleIdCount article(s) had no detected ID; $articlesWithImageTags article(s) had img tag(s); $externalSourceCount external source(s); $unexpectedSourceCount unexpected local/absolute source(s); $existingImageReuseCandidateCount existing Hudu image reuse candidate(s); $existingImageReuseCount existing Hudu image source(s) reused; $downloadProbeSuccessCount dry-run download probe(s) passed; $downloadProbeFailureCount failed." -Color Cyan

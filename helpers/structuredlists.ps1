@@ -273,7 +273,7 @@ function Export-SharePointStructuredListJson {
     }
 
     $indexRows |
-        Export-Csv -LiteralPath $IndexPath -NoTypeInformation -Encoding UTF8
+        Export-Csv -LiteralPath $IndexPath -Encoding UTF8
 
     [PSCustomObject]@{
         Bundles = $recordsByKey.Count

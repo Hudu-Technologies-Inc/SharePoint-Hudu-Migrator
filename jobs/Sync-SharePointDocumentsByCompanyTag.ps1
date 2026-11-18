@@ -1603,7 +1603,7 @@ function Invoke-TaggedDocumentSyncAssetCompanyIndex {
     if (-not (Test-Path -LiteralPath $assetReportDirectory -PathType Container)) {
         $null = New-Item -ItemType Directory -Path $assetReportDirectory -Force
     }
-    $rows | Export-Csv -LiteralPath $ReportPath -NoTypeInformation -Encoding UTF8
+    $rows | Export-Csv -LiteralPath $ReportPath -Encoding UTF8
 
     [PSCustomObject]@{
         ProcessedAssets              = $processedAssets
@@ -3706,7 +3706,7 @@ foreach ($drive in @($drives)) {
     }
 }
 
-$reportRows | Export-Csv -LiteralPath $resolvedReportPath -NoTypeInformation -Encoding UTF8
+$reportRows | Export-Csv -LiteralPath $resolvedReportPath -Encoding UTF8
 
 $summary = [PSCustomObject]@{
     SiteName      = $siteLabel

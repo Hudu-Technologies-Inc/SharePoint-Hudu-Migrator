@@ -433,7 +433,7 @@ foreach ($site in $sourceSites) {
 if ($sitePageIndex.Count -gt 0) {
     $sitePageIndex |
         Sort-Object SiteName, Title |
-        Export-Csv -LiteralPath $sitePagesIndexPath -NoTypeInformation -Encoding UTF8
+        Export-Csv -LiteralPath $sitePagesIndexPath -Encoding UTF8
 }
 
 if ($null -ne $RunSummary.JobInfo.pages) {

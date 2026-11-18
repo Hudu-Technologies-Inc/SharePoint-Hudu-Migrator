@@ -118,7 +118,7 @@ $SiteCompanyMap |
             Candidate3Score = @($_.TopCandidates | Select-Object -Skip 2 -First 1).Score
         }
     } |
-    Export-Csv -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyReview -NoTypeInformation -Encoding UTF8
+    Export-Csv -LiteralPath $RunSummary.OutputJsonFiles.SiteCompanyReview -Encoding UTF8
 
 Set-PrintAndLog -message "Site company map complete: $(@($SiteCompanyMap | Where-Object { $_.Status -eq 'Matched' }).Count) matched, $(@($SiteCompanyMap | Where-Object { $_.Status -eq 'Created' }).Count) created, $(@($SiteCompanyMap | Where-Object { $_.Status -eq 'CreateFailed' -or $_.Status -eq 'Unmatched' }).Count) unresolved." -Color Cyan
 Set-PrintAndLog -message "Wrote site company map: $($RunSummary.OutputJsonFiles.SiteCompanyMap)" -Color DarkMagenta

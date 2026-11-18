@@ -215,7 +215,7 @@ $ClientAttributionMap |
             Candidate3Score   = @($_.TopCandidates | Select-Object -Skip 2 -First 1).Score
         }
     } |
-    Export-Csv -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionReview -NoTypeInformation -Encoding UTF8
+    Export-Csv -LiteralPath $RunSummary.OutputJsonFiles.ClientAttributionReview -Encoding UTF8
 
 Set-PrintAndLog -message "Wrote client attribution map: $($RunSummary.OutputJsonFiles.ClientAttributionMap)" -Color DarkMagenta
 Set-PrintAndLog -message "Wrote client attribution review CSV: $($RunSummary.OutputJsonFiles.ClientAttributionReview)" -Color DarkMagenta
